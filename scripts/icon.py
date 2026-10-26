@@ -1,37 +1,30 @@
 #!/usr/bin/env python3
-"""Make the black ChatGPT logo on white iOS app icon (iOS handles corner radius)."""
+"""Create the exact blue-to-purple ChatGPT icon supplied in the user screenshot.
+
+This small, losslessly compressed screenshot crop is embedded so builds are reproducible
+and do not depend on a third-party SVG server or native Cairo libraries.
+"""
 from pathlib import Path
 from io import BytesIO
-import urllib.request
-import cairosvg
 from PIL import Image
+import base64
+import sys
 
-# Vector version of the recognizable official knot icon.
-# The user requested the standard black symbol on a white background.
-LOGO = "https://commons.wikimedia.org/wiki/Special:Redirect/file/ChatGPT_logo.svg"
+ICON_PNG_BASE64 = "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"
 
 def main():
-    import sys
     app = Path(sys.argv[1])
-    req = urllib.request.Request(LOGO, headers={"User-Agent":"ChatGPT-iOS16-build/1.0 (GitHub Actions)"})
-    svg = urllib.request.urlopen(req, timeout=45).read()
-    rendered = cairosvg.svg2png(bytestring=svg, output_width=800, output_height=800)
-    symbol = Image.open(BytesIO(rendered)).convert("RGBA")
-    # Normalize logo to black; SVG may include a colored background.
-    alpha = symbol.getchannel("A")
-    black = Image.new("RGBA", symbol.size, (0, 0, 0, 255))
-    black.putalpha(alpha)
-    icon = Image.new("RGBA", (1024, 1024), "white")
-    icon.alpha_composite(black, (112, 112))
-    for size, filename in [
-        (120, "AppIcon60x60@2x.png"),
-        (180, "AppIcon60x60@3x.png"),
-        (152, "AppIcon76x76@2x~ipad.png"),
-        (167, "AppIcon83.5x83.5@2x~ipad.png"),
-        (1024, "iTunesArtwork@2x.png")
+    data = base64.b64decode(ICON_PNG_BASE64, validate=True)
+    base = Image.open(BytesIO(data)).convert("RGB")
+    for size, name in [
+        (120,"AppIcon60x60@2x.png"),
+        (180,"AppIcon60x60@3x.png"),
+        (152,"AppIcon76x76@2x~ipad.png"),
+        (167,"AppIcon83.5x83.5@2x~ipad.png"),
+        (1024,"iTunesArtwork@2x.png"),
     ]:
-        icon.resize((size,size), Image.Resampling.LANCZOS).convert("RGB").save(app / filename)
-    print("Created ChatGPT icons")
+        base.resize((size,size), Image.Resampling.LANCZOS).save(app / name)
+    print("Installed user-provided gradient ChatGPT icon")
 
 if __name__ == "__main__":
     main()
