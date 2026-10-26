@@ -20,8 +20,8 @@ jobs:
           python-version: '3.12'
       - name: Install packaging dependencies
         run: |
-          brew install ldid cairo
-          python3 -m pip install 'lief>=0.17,<0.18' 'Pillow>=10,<13' 'cairosvg>=2.7,<3'
+          brew install ldid
+          python3 -m pip install 'lief>=0.17,<0.18' 'Pillow>=10,<13'
       - name: Package Gecko-based ChatGPT app
         env:
           DYLD_FALLBACK_LIBRARY_PATH: /opt/homebrew/opt/cairo/lib
