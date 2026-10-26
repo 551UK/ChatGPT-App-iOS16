@@ -5,6 +5,8 @@
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
 #import <sqlite3.h>
+#import <AVFoundation/AVFoundation.h>
+#import <objc/message.h>
 
 static NSString *const CGBundleID = @"com.551uk.chatgptgecko";
 static NSString *const CGHomeURL = @"https://chatgpt.com/";
@@ -122,6 +124,142 @@ static UIView *CGFindNamedView(UIView *root, NSString *fragment) {
     return nil;
 }
 
+// Small native recovery menu: the website's fullscreen voice route can hide
+// all browser navigation. The menu works independently of Gecko's web page,
+// while keeping URL bars/tabs permanently hidden.
+@interface CGAppActions : NSObject <UIGestureRecognizerDelegate>
+@property(nonatomic,weak) UIViewController *owner;
+@property(nonatomic,strong) UIButton *button;
+@property(nonatomic,strong) UIScreenEdgePanGestureRecognizer *backGesture;
+- (void)installInController:(UIViewController *)controller;
+- (void)updateLayout;
+@end
+
+@implementation CGAppActions
+
+- (void)returnToChats {
+    UIViewController *owner = self.owner;
+    // In Reynard 0.19.0 this @objc key command creates a new Gecko tab,
+    // loads our configured https://chatgpt.com/ URL and deactivates the
+    // current voice session. Avoid relying on the website's history state.
+    SEL newTab = NSSelectorFromString(@"newTabKeyCommand:");
+    if ([owner respondsToSelector:newTab]) {
+        ((void (*)(id,SEL,id))objc_msgSend)(owner, newTab, nil);
+    } else {
+        NSLog(@"[ChatGPTGecko] newTabKeyCommand unavailable");
+    }
+}
+
+- (void)requestMicrophone {
+    AVAuthorizationStatus state = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
+    if (state == AVAuthorizationStatusNotDetermined) {
+        __weak typeof(self) weakSelf = self;
+        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [weakSelf showMicrophoneResult:granted];
+            });
+        }];
+    } else {
+        [self showMicrophoneResult:(state == AVAuthorizationStatusAuthorized)];
+    }
+}
+
+- (void)showMicrophoneResult:(BOOL)allowed {
+    UIViewController *owner = self.owner;
+    if (!owner || owner.presentedViewController) return;
+    NSString *message = allowed
+      ? @"Microphone access is enabled for this app. Return to ChatGPT voice and tap ‘Tap to talk’. You may also need to allow ChatGPT's website-level permission."
+      : @"iOS has blocked this app's microphone. Open Settings, choose ChatGPT, and enable Microphone, then retry.";
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:(allowed ? @"Microphone enabled" : @"Microphone access needed")
+                                                                    message:message
+                                                             preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
+    if (!allowed) {
+        [alert addAction:[UIAlertAction actionWithTitle:@"Open Settings" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+            NSURL *url = [NSURL URLWithString:UIApplicationOpenSettingsURLString];
+            if (url) [UIApplication.sharedApplication openURL:url options:@{} completionHandler:nil];
+        }]];
+    }
+    [owner presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)refreshPage {
+    SEL refresh = NSSelectorFromString(@"reloadPageKeyCommand:");
+    if ([self.owner respondsToSelector:refresh])
+        ((void (*)(id,SEL,id))objc_msgSend)(self.owner, refresh, nil);
+}
+
+- (void)backSwipe:(UIScreenEdgePanGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateEnded &&
+        [gesture translationInView:gesture.view].x > 75) {
+        [self returnToChats];
+    }
+}
+
+- (void)showActions {
+    UIViewController *owner = self.owner;
+    if (!owner || owner.presentedViewController) return;
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"ChatGPT"
+                                                                  message:nil
+                                                           preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Back to chats" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+        [self returnToChats];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Enable microphone" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+        [self requestMicrophone];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Reload ChatGPT" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+        [self refreshPage];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover) { popover.sourceView = self.button; popover.sourceRect = self.button.bounds; }
+    [owner presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)installInController:(UIViewController *)controller {
+    if (self.button) return;
+    self.owner = controller;
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    [button setImage:[UIImage systemImageNamed:@"ellipsis"] forState:UIControlStateNormal];
+    button.tintColor = UIColor.labelColor;
+    button.backgroundColor = [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:0.94];
+    button.layer.cornerRadius = 17;
+    button.layer.borderWidth = 0.5;
+    button.layer.borderColor = UIColor.separatorColor.CGColor;
+    button.accessibilityLabel = @"ChatGPT options, back to chats and microphone access";
+    button.accessibilityIdentifier = @"ChatGPTAppOptions";
+    [button addTarget:self action:@selector(showActions) forControlEvents:UIControlEventTouchUpInside];
+    [controller.view addSubview:button];
+    self.button = button;
+    UIScreenEdgePanGestureRecognizer *back = [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self action:@selector(backSwipe:)];
+    back.edges = UIRectEdgeLeft;
+    back.cancelsTouchesInView = NO;
+    back.delegate = self;
+    [controller.view addGestureRecognizer:back];
+    self.backGesture = back;
+    [self updateLayout];
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    return YES;
+}
+
+- (void)updateLayout {
+    UIViewController *owner = self.owner;
+    if (!owner.isViewLoaded || !self.button) return;
+    // Below ChatGPT's mobile web header to avoid covering its sidebar and
+    // compose controls. The rest of the view is the real site.
+    CGFloat width = CGRectGetWidth(owner.view.bounds);
+    CGFloat height = CGRectGetHeight(owner.view.bounds);
+    CGFloat y = owner.view.safeAreaInsets.top + 48;
+    self.button.frame = CGRectMake(MAX(8, width - 43), MIN(y, height - 43), 34, 34);
+    [owner.view bringSubviewToFront:self.button];
+}
+@end
+
+static const void *CGAppActionsKey = &CGAppActionsKey;
+
 static void CGApplyAppLayout(UIViewController *controller) {
     if (!controller.isViewLoaded) return;
     UIView *root = controller.view;
@@ -158,6 +296,13 @@ static void CGApplyAppLayout(UIViewController *controller) {
         overview.userInteractionEnabled = NO;
     }
     [root bringSubviewToFront:content];
+    CGAppActions *actions = objc_getAssociatedObject(controller, CGAppActionsKey);
+    if (!actions) {
+        actions = [CGAppActions new];
+        objc_setAssociatedObject(controller, CGAppActionsKey, actions, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [actions installInController:controller];
+    }
+    [actions updateLayout];
 }
 
 static void CGBrowserDidLayout(id self, SEL _cmd) {
