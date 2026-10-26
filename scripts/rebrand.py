@@ -28,7 +28,7 @@ def main():
         d["CFBundleName"] = NAME
         d["NSCameraUsageDescription"] = "Attach photos to ChatGPT."
         d["NSPhotoLibraryUsageDescription"] = "Attach photos to ChatGPT."
-        d["NSMicrophoneUsageDescription"] = "Use your microphone for ChatGPT voice features."
+        d["NSMicrophoneUsageDescription"] = "Allow ChatGPT to record voice conversations and speech."
         d["NSSpeechRecognitionUsageDescription"] = "Use speech input in ChatGPT."
         # Avoid hijacking the original browser's reynard:// deep links.
         d.pop("CFBundleURLTypes", None)
@@ -50,6 +50,8 @@ def main():
                 old = d["CFBundleIdentifier"]
                 if old.endswith(".Helper"):
                     d["CFBundleIdentifier"] = APP_ID + ".Helper"
+                    d["NSMicrophoneUsageDescription"] = "Allow ChatGPT to record voice conversations and speech."
+                    d["NSCameraUsageDescription"] = "Allow ChatGPT to use the camera for requested website features."
                 elif old.endswith(".OpenIn"):
                     raise ValueError("Unexpected OpenIn extension: delete it before rebranding")
                 else:
