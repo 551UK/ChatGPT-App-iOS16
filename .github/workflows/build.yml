@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: chatgpt-gecko-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -34,6 +38,19 @@ jobs:
           otool -L "$MAIN" | grep -F '@executable_path/Frameworks/ChatGPTShell.dylib'
           test -s build/work/unpacked/Payload/ChatGPT.app/AppIcon60x60@3x.png
           test -d 'build/work/unpacked/Payload/ChatGPT.app/PlugIns/Reynard Helper.appex'
+          test ! -d 'build/work/unpacked/Payload/ChatGPT.app/PlugIns/OpenIn.appex'
+          python3 - <<'PY'
+          from pathlib import Path
+          import plistlib
+          root = Path("build/work/unpacked/Payload/ChatGPT.app")
+          app = plistlib.loads((root / "Info.plist").read_bytes())
+          helper = plistlib.loads((root / "PlugIns/Reynard Helper.appex/Info.plist").read_bytes())
+          assert app["CFBundleIdentifier"] == "com.551uk.chatgptgecko"
+          assert app["CFBundleDisplayName"] == "ChatGPT"
+          assert "CFBundleURLTypes" not in app, "ChatGPT must never claim Reynard/http/https URL schemes"
+          assert helper["CFBundleIdentifier"] == "com.551uk.chatgptgecko.Helper"
+          print("Verified app isolation: separate app/profile/helper, no URL schemes, no share extension")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: ChatGPT-Gecko-iOS16
@@ -45,6 +62,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          git fetch origin main --depth=1
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo 'Skipping outdated build release'
+            exit 0
+          fi
           TAG="gecko-test"
           NOTES="Experimental ChatGPT website app for jailbroken iOS 16 / TrollStore. Bundles Reynard 0.19.0 (Gecko 158.0.1), hides browser chrome, keeps ChatGPT's own web UI. Not device-tested. Install with TrollStore. The Gecko helper extension must be kept."
           if gh release view "$TAG" >/dev/null 2>&1; then
