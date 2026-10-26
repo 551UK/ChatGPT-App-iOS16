@@ -1,0 +1,53 @@
+name: Build ChatGPT (Gecko iOS16)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install packaging dependencies
+        run: |
+          brew install ldid cairo
+          python3 -m pip install 'lief>=0.17,<0.18' 'Pillow>=10,<13' 'cairosvg>=2.7,<3'
+      - name: Package Gecko-based ChatGPT app
+        run: bash scripts/package.sh
+      - name: Verify app content and Mach-O load command
+        run: |
+          set -euo pipefail
+          test -s dist/ChatGPT-Gecko-iOS16.ipa
+          MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
+          otool -L "$MAIN" | grep -F '@executable_path/Frameworks/ChatGPTShell.dylib'
+          test -s build/work/unpacked/Payload/ChatGPT.app/AppIcon60x60@3x.png
+          test -d 'build/work/unpacked/Payload/ChatGPT.app/PlugIns/Reynard Helper.appex'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-Gecko-iOS16
+          path: dist/ChatGPT-Gecko-iOS16.ipa
+          if-no-files-found: error
+      - name: Publish latest test IPA
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="gecko-test"
+          NOTES="Experimental ChatGPT website app for jailbroken iOS 16 / TrollStore. Bundles Reynard 0.19.0 (Gecko 158.0.1), hides browser chrome, keeps ChatGPT's own web UI. Not device-tested. Install with TrollStore. The Gecko helper extension must be kept."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa --clobber
+            gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
+          else
+            gh release create "$TAG" dist/ChatGPT-Gecko-iOS16.ipa --prerelease --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
+          fi
