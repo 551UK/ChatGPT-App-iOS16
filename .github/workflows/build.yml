@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-2_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-3_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPTGecko.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
@@ -71,7 +71,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="Experimental fix for the blank-screen startup: seeds the Gecko tab with chatgpt.com, preserves the Gecko Auto Layout and JIT entitlements. Includes a Dopamine iOS 16 rootless DEB and a TrollStore IPA. Reynard 0.19.0 / Gecko 158.0.1. Not yet device-tested."
+          NOTES="Experimental ChatGPT Gecko app for iOS 16. Adds a native options menu (Back to chats, Enable microphone, Reload), left-edge gesture to exit stuck voice views, requests iOS microphone access on user action, and retains independent Gecko app data. Includes rootless DEB and TrollStore IPA. Reynard 0.19.0 / Gecko 158.0.1. Requires testing on device."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
