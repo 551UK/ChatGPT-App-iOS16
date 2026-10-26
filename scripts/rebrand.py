@@ -41,13 +41,17 @@ def main():
 
     plugin_root = app / "PlugIns"
     if plugin_root.is_dir():
+        import shutil
+        # ChatGPT does not register browser-style share extensions. Preserve
+        # Reynard's mandatory Gecko helper, but remove the optional OpenIn.
+        shutil.rmtree(plugin_root / "OpenIn.appex", ignore_errors=True)
         for extension in plugin_root.glob("*.appex"):
             def update_extension(d):
                 old = d["CFBundleIdentifier"]
                 if old.endswith(".Helper"):
                     d["CFBundleIdentifier"] = APP_ID + ".Helper"
                 elif old.endswith(".OpenIn"):
-                    d["CFBundleIdentifier"] = APP_ID + ".OpenIn"
+                    raise ValueError("Unexpected OpenIn extension: delete it before rebranding")
                 else:
                     raise ValueError("Unexpected extension identifier " + old)
             modify_plist(extension / "Info.plist", update_extension)
