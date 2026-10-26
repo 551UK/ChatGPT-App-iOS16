@@ -5,17 +5,21 @@ Experimental **ChatGPT app** using the complete mobile website at https://chatgp
 - App display name: **ChatGPT**
 - Bundle ID: `com.551uk.chatgptgecko`
 - Reynard: **0.19.0**; Firefox Gecko: **158.0.1**
-- Target: **iOS 16, TrollStore** (including Dopamine rootless devices)
+- Target: **iOS 16 Dopamine rootless DEB**, with alternative TrollStore IPA
 - ChatGPT account login; website features, conversation history, attachments and voice are provided by the ChatGPT site itself, subject to browser/device support
 - Separate from the official ChatGPT app and from the original Reynard installation
 
 ## Installation
 
-Download the `ChatGPT-Gecko-iOS16.ipa` artifact from Actions or the test release, install through **TrollStore**, and keep the helper app extension. This is not an iOS rootless tweak or an old-version ChatGPT IPA.
+Download the `com.551uk.chatgptgecko_0.19.0-3_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
+
+## App-style navigation and microphone
+
+The real ChatGPT website is the interface. A compact native **•••** app options button appears below the site's top-right header and contains **Back to chats**, **Enable microphone**, and **Reload ChatGPT**. You can also swipe from the left edge to return to chats if you get stuck in voice mode. The button is an app recovery menu, **not a browser address or tab bar**. Microphone permission is requested only when you select Enable microphone; Gecko's website-level permission prompt may still be required. Video, advanced voice and specific native-only app features depend on actual website and Gecko support. The app is not an exact clone of the current official ChatGPT IPA.
 
 ## Building
 
-GitHub Actions downloads the official **Reynard-TrollStore.tipa** from the fixed `0.19.0` release, compiles our Objective-C app shell on macOS, adds it as an executable dependency, rebrands icons/bundle identifiers, signs the app and extension and generates the IPA. You don't need the full Firefox/Gecko source to rebuild. See `scripts/package.sh`.
+GitHub Actions downloads the official **Reynard-TrollStore.tipa** from the fixed `0.19.0` release, compiles our Objective-C app shell on macOS, adds it as an executable dependency, rebrands icons/bundle identifiers, signs the app and extension and generates the IPA and rootless DEB. You don't need the full Firefox/Gecko source to rebuild. See `scripts/package.sh`.
 
 ## What remains experimental
 
