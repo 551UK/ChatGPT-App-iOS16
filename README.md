@@ -21,7 +21,7 @@ GitHub Actions downloads the official **Reynard-TrollStore.tipa** from the fixed
 
 This package and shell integration are **not yet device-tested**. Upstream browser UI changes can affect the hide/layout hook. Gecko JIT, login and file pickers must be tested on a real iOS 16 device. If the hook fails, the app should remain an ordinary usable Reynard browser.
 
-The icon is a conventional black ChatGPT mark on a white background (SVG from Wikimedia Commons). The user supplied the desired ChatGPT icon design.
+The app uses the user's supplied blue-to-purple ChatGPT home-screen icon, embedded directly in the reproducible icon generator. Reynard's URL handlers and optional Open In extension are removed, and its Gecko helper uses a distinct app identifier.
 
 ## Acknowledgements and licensing
 
