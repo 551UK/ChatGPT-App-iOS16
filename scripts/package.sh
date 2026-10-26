@@ -36,7 +36,7 @@ SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CLANG="$(xcrun --sdk iphoneos --find clang)"
 "$CLANG" -arch arm64 -isysroot "$SDK" -miphoneos-version-min=16.0 \
     -fobjc-arc -fblocks -O2 -dynamiclib \
-    -framework Foundation -framework UIKit -framework CoreGraphics -lsqlite3 \
+    -framework Foundation -framework UIKit -framework CoreGraphics -framework AVFoundation -lsqlite3 \
     -Wno-deprecated-declarations \
     "$ROOT/src/ChatGPTShell.m" -o "$APP/Frameworks/ChatGPTShell.dylib"
 
@@ -121,7 +121,7 @@ ditto "$NEWAPP" "$PKG/var/jb/Applications/ChatGPTGecko.app"
 cat > "$PKG/DEBIAN/control" <<'CONTROL'
 Package: com.551uk.chatgptgecko
 Name: ChatGPT Gecko
-Version: 0.19.0-2
+Version: 0.19.0-3
 Architecture: iphoneos-arm64
 Maintainer: 551UK
 Author: 551UK
@@ -144,7 +144,7 @@ if command -v uicache >/dev/null 2>&1; then uicache -a || true; fi
 exit 0
 POSTRM
 chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/postrm"
-DEB="$DIST/com.551uk.chatgptgecko_0.19.0-2_iphoneos-arm64.deb"
+DEB="$DIST/com.551uk.chatgptgecko_0.19.0-3_iphoneos-arm64.deb"
 dpkg-deb --root-owner-group -Zxz --build "$PKG" "$DEB"
 dpkg-deb --field "$DEB" Package Architecture
 ls -lh "$DEB"
