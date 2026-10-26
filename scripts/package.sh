@@ -54,11 +54,10 @@ for f in base.glob("*.plist"):
     if not isinstance(obj,dict): continue
     for k in ("application-identifier","com.apple.application-identifier"):
         if k in obj and isinstance(obj[k],str):
-            old=obj[k]
-            tail=old.split(".",1)[-1]
-            suffix=(".Helper" if "Helper" in f.stem else (".OpenIn" if f.stem == "OpenIn" else ""))
-            prefix=old[:len(old)-len(tail)] if "." in old else ""
-            obj[k]=prefix+"com.551uk.chatgptgecko"+suffix
+            obj[k]=obj[k].replace("com.minh-ton.Reynard", "com.551uk.chatgptgecko")
+    for k in ("com.apple.security.application-groups",):
+        if k in obj and isinstance(obj[k],list):
+            obj[k]=[s.replace("com.minh-ton.Reynard", "com.551uk.chatgptgecko") if isinstance(s,str) else s for s in obj[k]]
     f.write_bytes(plistlib.dumps(obj))
 PY
 
