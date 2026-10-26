@@ -36,13 +36,27 @@ SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CLANG="$(xcrun --sdk iphoneos --find clang)"
 "$CLANG" -arch arm64 -isysroot "$SDK" -miphoneos-version-min=16.0 \
     -fobjc-arc -fblocks -O2 -dynamiclib \
-    -framework Foundation -framework UIKit -framework CoreGraphics \
+    -framework Foundation -framework UIKit -framework CoreGraphics -lsqlite3 \
     -Wno-deprecated-declarations \
     "$ROOT/src/ChatGPTShell.m" -o "$APP/Frameworks/ChatGPTShell.dylib"
 
 python3 "$ROOT/scripts/inject.py" "$APP/$MAIN_EXE"
 python3 "$ROOT/scripts/rebrand.py" "$APP"
 python3 "$ROOT/scripts/icon.py" "$APP"
+
+# Preserve the upstream unsandboxed/JIT entitlements. If ldid cannot extract
+# a binary's signature (some TIPA builds have none), use the pinned upstream
+# entitlement manifests rather than accidentally signing with no entitlements.
+fetch_entitlements() {
+    local label="$1" upstream="$2"
+    local target="$WORK/entitlements/$label.plist"
+    if ! grep -q '<plist' "$target" 2>/dev/null; then
+        echo "Restoring upstream JIT entitlements for $label"
+        curl -fLsS --retry 3 "https://raw.githubusercontent.com/minh-ton/reynard-browser/${VERSION}/$upstream" -o "$target"
+    fi
+}
+fetch_entitlements main browser/Reynard/Entitlements/Reynard.private.entitlements
+fetch_entitlements "Reynard Helper" browser/Helper/Entitlements/Reynard-Helper.private.entitlements
 
 # Set matching identifiers in existing entitlements where appropriate.
 python3 - "$WORK/entitlements" <<'PY'
@@ -78,6 +92,16 @@ for PLUG in "$APP"/PlugIns/*.appex; do
 done
 sign_binary "$APP/$MAIN_EXE" main
 
+# Confirm that Gecko's parent app and helper retain the JIT permissions.
+ldid -e "$APP/$MAIN_EXE" > "$WORK/entitlements/main-verified.plist"
+grep -q 'com.apple.private.security.no-sandbox' "$WORK/entitlements/main-verified.plist" || {
+    echo "ERROR: missing Gecko JIT parent entitlement" >&2; exit 1;
+}
+ldid -e "$APP/PlugIns/Reynard Helper.appex/Reynard Helper" > "$WORK/entitlements/helper-verified.plist"
+grep -q 'extended-virtual-addressing' "$WORK/entitlements/helper-verified.plist" || {
+    echo "ERROR: missing Gecko helper entitlement" >&2; exit 1;
+}
+
 # Package as a real standalone ChatGPT application (not a tweak or web clip).
 # TrollStore resigns and registers the app on installation.
 NEWAPP="$WORK/unpacked/Payload/ChatGPT.app"
@@ -87,3 +111,40 @@ OUTPUT="$DIST/ChatGPT-Gecko-iOS16.ipa"
 unzip -t "$OUTPUT" >/dev/null
 /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$NEWAPP/Info.plist"
 ls -lh "$OUTPUT"
+
+# Build an independent rootless app package. Its filesystem directory is
+# different from both the official ChatGPT app and standalone Reynard; only
+# the display name is ChatGPT. No mobile substrate injection is required.
+PKG="$ROOT/build/deb-root"
+mkdir -p "$PKG/var/jb/Applications" "$PKG/DEBIAN"
+ditto "$NEWAPP" "$PKG/var/jb/Applications/ChatGPTGecko.app"
+cat > "$PKG/DEBIAN/control" <<'CONTROL'
+Package: com.551uk.chatgptgecko
+Name: ChatGPT Gecko
+Version: 0.19.0-2
+Architecture: iphoneos-arm64
+Maintainer: 551UK
+Author: 551UK
+Section: Applications
+Depends: firmware (>= 16.0)
+Description: ChatGPT website app powered by Gecko 158.0.1, based on Reynard.
+CONTROL
+cat > "$PKG/DEBIAN/postinst" <<'POSTINST'
+#!/bin/sh
+set -e
+export PATH="/var/jb/usr/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+if command -v uicache >/dev/null 2>&1; then uicache -a || true; fi
+exit 0
+POSTINST
+cat > "$PKG/DEBIAN/postrm" <<'POSTRM'
+#!/bin/sh
+set -e
+export PATH="/var/jb/usr/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+if command -v uicache >/dev/null 2>&1; then uicache -a || true; fi
+exit 0
+POSTRM
+chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/postrm"
+DEB="$DIST/com.551uk.chatgptgecko_0.19.0-2_iphoneos-arm64.deb"
+dpkg-deb --root-owner-group -Zxz --build "$PKG" "$DEB"
+dpkg-deb --field "$DEB" Package Architecture
+ls -lh "$DEB"
