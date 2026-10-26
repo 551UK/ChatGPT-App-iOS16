@@ -36,7 +36,7 @@ SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CLANG="$(xcrun --sdk iphoneos --find clang)"
 "$CLANG" -arch arm64 -isysroot "$SDK" -miphoneos-version-min=16.0 \
     -fobjc-arc -fblocks -O2 -dynamiclib \
-    -framework Foundation -framework UIKit \
+    -framework Foundation -framework UIKit -framework CoreGraphics \
     -Wno-deprecated-declarations \
     "$ROOT/src/ChatGPTShell.m" -o "$APP/Frameworks/ChatGPTShell.dylib"
 
