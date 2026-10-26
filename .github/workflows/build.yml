@@ -24,16 +24,17 @@ jobs:
           python-version: '3.12'
       - name: Install packaging dependencies
         run: |
-          brew install ldid
+          brew install ldid dpkg
           python3 -m pip install 'lief>=0.17,<0.18' 'Pillow>=10,<13'
       - name: Package Gecko-based ChatGPT app
-        env:
-          DYLD_FALLBACK_LIBRARY_PATH: /opt/homebrew/opt/cairo/lib
         run: bash scripts/package.sh
       - name: Verify app content and Mach-O load command
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
+          test -s dist/com.551uk.chatgptgecko_0.19.0-2_iphoneos-arm64.deb
+          dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
+          dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPTGecko.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
           otool -L "$MAIN" | grep -F '@executable_path/Frameworks/ChatGPTShell.dylib'
           test -s build/work/unpacked/Payload/ChatGPT.app/AppIcon60x60@3x.png
@@ -54,7 +55,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ChatGPT-Gecko-iOS16
-          path: dist/ChatGPT-Gecko-iOS16.ipa
+          path: |
+            dist/ChatGPT-Gecko-iOS16.ipa
+            dist/*.deb
           if-no-files-found: error
       - name: Publish latest test IPA
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -68,10 +71,10 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="Experimental ChatGPT website app for jailbroken iOS 16 / TrollStore. Bundles Reynard 0.19.0 (Gecko 158.0.1), hides browser chrome, keeps ChatGPT's own web UI. Not device-tested. Install with TrollStore. The Gecko helper extension must be kept."
+          NOTES="Experimental fix for the blank-screen startup: seeds the Gecko tab with chatgpt.com, preserves the Gecko Auto Layout and JIT entitlements. Includes a Dopamine iOS 16 rootless DEB and a TrollStore IPA. Reynard 0.19.0 / Gecko 158.0.1. Not yet device-tested."
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa --clobber
+            gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
           else
-            gh release create "$TAG" dist/ChatGPT-Gecko-iOS16.ipa --prerelease --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
+            gh release create "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --prerelease --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
           fi
