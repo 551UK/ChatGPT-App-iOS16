@@ -662,6 +662,11 @@ __attribute__((constructor))
 static void CGStart(void) {
     @autoreleasepool {
         if (!CGIsOurApp()) return;
+        // Clear requested tabs/cache before creating the ChatGPT startup tab.
+        // The previous independent constructors could run in the reverse order,
+        // deleting the newly seeded tab and causing a blank first launch.
+        extern void CGRunPendingDataMaintenance(void);
+        CGRunPendingDataMaintenance();
         CGConfigurePreferences();
         CGPreallowChatGPTMicrophoneSite();
         CGEnsureStartupTab();
