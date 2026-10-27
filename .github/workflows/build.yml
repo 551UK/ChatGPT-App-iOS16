@@ -39,30 +39,37 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main --depth=1
-          # Compare the source with exact v0.56. Only two changes allowed:
-          # one loader readiness field and one loader handoff condition.
+          # v0.56 clean-data startup fix remains. Normal launches now run
+          # their history policy at the original v0.55 constructor timing.
           python3 - <<'PY'
-          import difflib
           import subprocess
           from pathlib import Path
+          root = "8d270d334ed84fdf26a1ccdc6bb02c35d33ff1fe"
           original = subprocess.check_output(
-              ["git", "show", "8d270d334ed84fdf26a1ccdc6bb02c35d33ff1fe:src/ChatGPTShell.m"],
-              text=True).splitlines(keepends=True)
-          current = Path("src/ChatGPTShell.m").read_text().splitlines(keepends=True)
-          edits = []
-          for op, i, j, k, l in difflib.SequenceMatcher(
-              a=original, b=current, autojunk=False).get_opcodes():
-              if op != "equal":
-                  edits.append((op, original[i:j], current[k:l]))
-          assert len(edits) == 2, "Unexpected native shell differences from v0.56"
-          first, second = edits
-          assert first[0] == "insert"
-          assert len(first[2]) == 1 and first[2][0].strip() == "@property(nonatomic,strong) NSDate *pageReadySince;"
-          assert any("elapsed >= 0.9" in line for line in second[1])
-          assert any("stableFor >= 1.15" in line for line in second[2])
-          assert any("pageReadySince = nil" in line for line in second[2])
-          assert any("CGRunPendingDataMaintenance();" in line for line in current)
-          print("PASS: Only native loader stabilization changed from v0.56")
+              ["git","show",f"{root}:src/ChatGPTShell.m"],text=True)
+          old = """        extern void CGRunPendingDataMaintenance(void);
+                  CGRunPendingDataMaintenance();
+                  CGConfigurePreferences();""".replace("                  ","        ")
+          new = """        extern void CGRunPendingDataMaintenance(void);
+                  extern BOOL CGHasPendingDataClear(void);
+                  // A normal launch follows the known-good v0.55 constructor ordering.
+                  // When Clear App Data is queued, process it before seeding the tab.
+                  if (CGHasPendingDataClear()) CGRunPendingDataMaintenance();
+                  CGConfigurePreferences();""".replace("                  ","        ")
+          assert old in original
+          assert Path("src/ChatGPTShell.m").read_text()==original.replace(old,new,1), "Unplanned native shell edit"
+          original_data = subprocess.check_output(
+              ["git","show",f"{root}:src/ChatGPTDataMaintenance.m"],text=True)
+          data=Path("src/ChatGPTDataMaintenance.m").read_text()
+          assert data.startswith(original_data), "Existing clear-data code changed unexpectedly"
+          addition=data[len(original_data):]
+          assert "BOOL CGHasPendingDataClear(void)" in addition
+          assert "__attribute__((constructor))" in addition
+          assert "CGNormalStartupHistoryPolicy" in addition
+          assert "if (!CGIsChatGPTApp() || CGReadClearMask() != 0) return;" in addition
+          assert "CGRunPendingDataMaintenance();" in addition
+          assert "if (CGHasPendingDataClear()) CGRunPendingDataMaintenance();" in new
+          print("PASS: normal launch uses v0.55 path, pending clear retains v0.56 ordering")
           PY
           git diff --exit-code origin/main HEAD -- prefs/PreferenceLoader.plist prefs/Resources/Info.plist
           test -s src/ChatGPTContextMenu.m
