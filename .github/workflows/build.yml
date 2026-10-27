@@ -79,7 +79,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT Gecko iOS 16 test v0.19.0-5. Fixes visible Reynard top URL and bottom browser toolbar by enforcing app-only layout on appearance and relayout; preserves ChatGPT web sidebar/chat UI and website microphone prompt behavior. Native options menu includes Back to chats, New chat, iOS microphone and Reload. Rootless DEB for Dopamine and TrollStore IPA. Device verification required."
+          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-5. Uses Reynard-Jailbroken 0.19.0 / Gecko 158.0.1, changes the app/helper bundle identity to get a clean iOS microphone permission state, keeps chatgpt.com microphone permission on Ask so the normal Reynard site prompt can appear, removes the floating three-dot menu, and keeps all browser URL/tab chrome hidden. The real ChatGPT site remains the primary chat/sidebar interface; native back navigation is reserved for voice routes. Rootless Dopamine DEB plus test IPA."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
