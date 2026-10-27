@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-18_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-19_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
@@ -99,7 +99,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-18. Native cold-start loader is intentionally minimal: one centered spinning ChatGPT knot icon on a white background, with no text and no separate activity spinner. The icon rotates continuously until the existing Gecko-ready check fades the overlay away. Existing microphone permissions, no-flash cleanup, full-screen layout, viewport fix and swipe-right Back remain unchanged. Rootless Dopamine DEB plus test IPA."
+          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-19. The mobile-web 'Do more with the ChatGPT app' promotion is suppressed before paint and dismissed invisibly. While the iOS keyboard is open, the ChatGPT message bar now measures and removes the extra Gecko/web gap so it sits against the keyboard. Existing startup loader, microphone permissions, no-flash cleanup, full-screen layout, viewport fix and swipe-right Back remain unchanged. Rootless Dopamine DEB plus test IPA."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
