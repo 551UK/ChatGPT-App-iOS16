@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>entry</key>
+    <dict>
+        <key>cell</key>
+        <string>PSLinkCell</string>
+        <key>label</key>
+        <string>ChatGPT</string>
+        <key>bundle</key>
+        <string>ChatGPTPrefs</string>
+        <key>detail</key>
+        <string>CGPRootListController</string>
+        <key>controller</key>
+        <string>CGPRootListController</string>
+        <key>isController</key>
+        <true/>
+        <key>icon</key>
+        <string>/var/jb/Library/PreferenceLoader/Preferences/ChatGPT.png</string>
+        <key>iconImage</key>
+        <string>/var/jb/Library/PreferenceLoader/Preferences/ChatGPT.png</string>
+        <key>iconImageSystem</key>
+        <string>bubble.left.and.bubble.right.fill</string>
+    </dict>
+</dict>
+</plist>
