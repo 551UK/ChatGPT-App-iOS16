@@ -190,18 +190,13 @@ static void CGEnsureStartupTab(void) {
     NSLog(@"[ChatGPTGecko] Startup tab prepared: %@", chatID ?: @"failure");
 }
 
-// Native navigation is deliberately minimal: Gecko still renders the real
-// ChatGPT site, while these two controls provide browser history without
-// exposing Reynard's URL bar, tabs, share controls or browser branding.
-@interface CGAppNavigation : NSObject
+// Full-screen app navigation: no visible browser controls. A left-edge
+// rightward swipe maps to Reynard/Gecko history back, matching a native app
+// gesture while leaving the ChatGPT website itself visually uninterrupted.
+@interface CGAppNavigation : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic,weak) UIViewController *owner;
-@property(nonatomic,strong) UIView *bar;
-@property(nonatomic,strong) UIView *divider;
-@property(nonatomic,strong) UIButton *backButton;
-@property(nonatomic,strong) UIButton *forwardButton;
-@property(nonatomic,strong) NSLayoutConstraint *heightConstraint;
+@property(nonatomic,strong) UIScreenEdgePanGestureRecognizer *backGesture;
 - (void)installInController:(UIViewController *)controller;
-- (void)updateLayout;
 @end
 
 @implementation CGAppNavigation
@@ -214,99 +209,34 @@ static void CGEnsureStartupTab(void) {
     }
 }
 
-- (void)goForward {
-    UIViewController *owner = self.owner;
-    SEL action = NSSelectorFromString(@"goForwardKeyCommand:");
-    if (owner && [owner respondsToSelector:action]) {
-        ((void (*)(id,SEL,id))objc_msgSend)(owner, action, nil);
+- (void)handleBackSwipe:(UIScreenEdgePanGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateEnded) return;
+    CGPoint translation = [gesture translationInView:gesture.view];
+    CGPoint velocity = [gesture velocityInView:gesture.view];
+    if (translation.x > 55.0 && velocity.x >= 0.0) {
+        [self goBack];
     }
 }
 
-- (UIButton *)navigationButtonWithSymbol:(NSString *)symbol
-                                   label:(NSString *)label
-                              identifier:(NSString *)identifier
-                                  action:(SEL)action {
-    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-    button.translatesAutoresizingMaskIntoConstraints = NO;
-    UIImageSymbolConfiguration *configuration =
-      [UIImageSymbolConfiguration configurationWithPointSize:16.0
-                                                       weight:UIImageSymbolWeightSemibold];
-    [button setImage:[[UIImage systemImageNamed:symbol] imageWithConfiguration:configuration]
-            forState:UIControlStateNormal];
-    button.tintColor = UIColor.labelColor;
-    button.backgroundColor =
-      [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:0.72];
-    button.layer.cornerRadius = 18.0;
-    button.accessibilityLabel = label;
-    button.accessibilityIdentifier = identifier;
-    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
-    return button;
-}
-
 - (void)installInController:(UIViewController *)controller {
-    if (self.bar) return;
+    if (self.backGesture) return;
     self.owner = controller;
-    UIView *root = controller.view;
 
-    UIView *bar = [UIView new];
-    bar.translatesAutoresizingMaskIntoConstraints = NO;
-    bar.backgroundColor = UIColor.systemBackgroundColor;
-    bar.accessibilityIdentifier = @"ChatGPTBottomNavigation";
-    [root addSubview:bar];
-    self.bar = bar;
+    UIScreenEdgePanGestureRecognizer *gesture =
+      [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self
+                                                       action:@selector(handleBackSwipe:)];
+    gesture.edges = UIRectEdgeLeft;
+    gesture.cancelsTouchesInView = NO;
+    gesture.delegate = self;
+    [controller.view addGestureRecognizer:gesture];
+    self.backGesture = gesture;
 
-    UIView *divider = [UIView new];
-    divider.translatesAutoresizingMaskIntoConstraints = NO;
-    divider.backgroundColor = [UIColor.separatorColor colorWithAlphaComponent:0.18];
-    [bar addSubview:divider];
-    self.divider = divider;
-
-    UIButton *back = [self navigationButtonWithSymbol:@"chevron.left"
-                                                label:@"Back"
-                                           identifier:@"ChatGPTBackButton"
-                                               action:@selector(goBack)];
-    UIButton *forward = [self navigationButtonWithSymbol:@"chevron.right"
-                                                   label:@"Forward"
-                                              identifier:@"ChatGPTForwardButton"
-                                                  action:@selector(goForward)];
-    [bar addSubview:back];
-    [bar addSubview:forward];
-    self.backButton = back;
-    self.forwardButton = forward;
-
-    self.heightConstraint =
-      [bar.heightAnchor constraintEqualToConstant:50.0 + root.safeAreaInsets.bottom];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [bar.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
-        [bar.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
-        [bar.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
-        self.heightConstraint,
-
-        [divider.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor],
-        [divider.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor],
-        [divider.topAnchor constraintEqualToAnchor:bar.topAnchor],
-        [divider.heightAnchor constraintEqualToConstant:0.5],
-
-        [back.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:12.0],
-        [back.topAnchor constraintEqualToAnchor:bar.topAnchor constant:7.0],
-        [back.widthAnchor constraintEqualToConstant:36.0],
-        [back.heightAnchor constraintEqualToConstant:36.0],
-
-        [forward.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor constant:-12.0],
-        [forward.topAnchor constraintEqualToAnchor:bar.topAnchor constant:7.0],
-        [forward.widthAnchor constraintEqualToConstant:36.0],
-        [forward.heightAnchor constraintEqualToConstant:36.0],
-    ]];
-
-    NSLog(@"[ChatGPTGecko] Bottom app navigation installed");
+    NSLog(@"[ChatGPTGecko] Full-screen swipe-back navigation installed");
 }
 
-- (void)updateLayout {
-    UIViewController *owner = self.owner;
-    if (!owner.isViewLoaded || !self.bar) return;
-    self.heightConstraint.constant = 50.0 + owner.view.safeAreaInsets.bottom;
-    [owner.view bringSubviewToFront:self.bar];
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
+ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    return YES;
 }
 @end
 
@@ -406,10 +336,9 @@ static void CGApplyAppLayout(UIViewController *controller) {
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         [navigation installInController:controller];
     }
-    [navigation updateLayout];
 
-    // The real ChatGPT website fills all available space above our small
-    // native history bar. Reynard's hidden toolbar no longer owns any space.
+    // True app-style presentation: fill the entire screen below the status
+    // bar. There is no visible toolbar/footer/nav strip at the bottom.
     NSArray<NSLayoutConstraint *> *ours =
       objc_getAssociatedObject(content, CGConstraintsAdjustedKey);
     if (!ours) {
@@ -418,7 +347,7 @@ static void CGApplyAppLayout(UIViewController *controller) {
             [content.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
             [content.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
             [content.topAnchor constraintEqualToAnchor:root.safeAreaLayoutGuide.topAnchor],
-            [content.bottomAnchor constraintEqualToAnchor:navigation.bar.topAnchor]
+            [content.bottomAnchor constraintEqualToAnchor:root.bottomAnchor]
         ];
         objc_setAssociatedObject(content, CGConstraintsAdjustedKey, ours,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -440,7 +369,6 @@ static void CGApplyAppLayout(UIViewController *controller) {
     }
 
     [root bringSubviewToFront:content];
-    [navigation updateLayout];
 }
 
 // Schedule after the upstream override finishes laying out browser chrome.
