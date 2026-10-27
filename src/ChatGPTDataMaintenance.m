@@ -28,11 +28,36 @@ static BOOL CGReadBool(NSString *key, BOOL fallback) {
     return result;
 }
 
-static void CGWriteBool(NSString *key, BOOL value) {
-    CFPreferencesSetAppValue(
-        (__bridge CFStringRef)key,
-        value ? kCFBooleanTrue : kCFBooleanFalse,
-        CGPrefsDomain);
+
+// A single queued bitmask replaces the two old one-shot history/cache flags.
+// Individual selected categories can be retried if a file operation fails.
+enum {
+    CGClearHistoryBit     = 1 << 0,
+    CGClearCacheBit       = 1 << 1,
+    CGClearPermissionsBit = 1 << 2,
+    CGClearDownloadsBit   = 1 << 3,
+    CGClearTabsBit        = 1 << 4,
+    CGClearAllBits        = (1 << 5) - 1
+};
+
+static NSUInteger CGReadClearMask(void) {
+    CFPreferencesAppSynchronize(CGPrefsDomain);
+    CFPropertyListRef value = CFPreferencesCopyAppValue(
+        CFSTR("pendingClearCategories"), CGPrefsDomain);
+    if (!value) return 0;
+    long long number = 0;
+    if (CFGetTypeID(value) == CFNumberGetTypeID()) {
+        CFNumberGetValue((CFNumberRef)value, kCFNumberLongLongType, &number);
+    }
+    CFRelease(value);
+    return number > 0 ? ((NSUInteger)number & CGClearAllBits) : 0;
+}
+
+static void CGWriteClearMask(NSUInteger mask) {
+    int number = (int)(mask & CGClearAllBits);
+    CFNumberRef value = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &number);
+    CFPreferencesSetAppValue(CFSTR("pendingClearCategories"), value, CGPrefsDomain);
+    CFRelease(value);
     CFPreferencesAppSynchronize(CGPrefsDomain);
 }
 
@@ -198,34 +223,51 @@ static void CGWriteGeckoHistoryPreference(BOOL noHistory) {
     }
 }
 
-static void CGRemoveDirectoryContents(NSString *path) {
-    if (!path.length) return;
-
+// Remove contents only; never delete the parent of a cache-only folder.
+// Do not recursively clear the app's Documents or Application Support root.
+static BOOL CGRemoveDirectoryContents(NSString *path) {
+    if (!path.length) return YES;
     NSFileManager *fm = NSFileManager.defaultManager;
     BOOL directory = NO;
-    if (![fm fileExistsAtPath:path isDirectory:&directory] || !directory) return;
-
+    if (![fm fileExistsAtPath:path isDirectory:&directory]) return YES;
+    if (!directory) return NO;
+    BOOL success = YES;
     for (NSString *entry in [fm contentsOfDirectoryAtPath:path error:nil]) {
-        [fm removeItemAtPath:[path stringByAppendingPathComponent:entry]
-                       error:nil];
+        NSError *error = nil;
+        if (![fm removeItemAtPath:[path stringByAppendingPathComponent:entry] error:&error]) {
+            success = NO;
+            NSLog(@"[ChatGPTGecko] Could not clear %@: %@", entry, error);
+        }
     }
+    return success;
 }
 
-static void CGClearLoginSafeCache(void) {
-    [[NSURLCache sharedURLCache] removeAllCachedResponses];
+static BOOL CGRemoveFileIfPresent(NSString *path) {
+    if (!path.length || ![[NSFileManager defaultManager] fileExistsAtPath:path]) return YES;
+    NSError *error = nil;
+    BOOL done = [[NSFileManager defaultManager] removeItemAtPath:path error:&error];
+    if (!done) NSLog(@"[ChatGPTGecko] Could not remove %@: %@", path, error);
+    return done;
+}
 
+static BOOL CGSQLiteExecIfPresent(NSString *path, NSArray<NSString *> *statements) {
+    if (!path.length || ![[NSFileManager defaultManager] fileExistsAtPath:path]) return YES;
+    return CGSQLiteExec(path, statements);
+}
+
+static BOOL CGClearLoginSafeCache(void) {
+    [[NSURLCache sharedURLCache] removeAllCachedResponses];
+    BOOL success = YES;
     for (NSString *cachePath in NSSearchPathForDirectoriesInDomains(
              NSCachesDirectory, NSUserDomainMask, YES)) {
-        CGRemoveDirectoryContents(cachePath);
+        if (!CGRemoveDirectoryContents(cachePath)) success = NO;
     }
 
-    // Gecko can keep network/startup cache directories inside its profile.
-    // Only these explicitly cache-only directories are touched.
+    // Gecko network/startup cache is distinct from cookies/DOM auth storage.
     NSString *home = NSHomeDirectory();
     NSDirectoryEnumerator<NSString *> *enumerator =
         [NSFileManager.defaultManager enumeratorAtPath:home];
     NSMutableArray<NSString *> *cacheDirs = [NSMutableArray array];
-
     for (NSString *relative in enumerator) {
         NSString *name = relative.lastPathComponent;
         if ([name isEqualToString:@"cache2"] ||
@@ -234,10 +276,66 @@ static void CGClearLoginSafeCache(void) {
             [enumerator skipDescendants];
         }
     }
-
     for (NSString *cacheDir in cacheDirs) {
-        CGRemoveDirectoryContents(cacheDir);
+        if (!CGRemoveDirectoryContents(cacheDir)) success = NO;
     }
+
+    // Reynard's native favicon cache stores DB records and image files here.
+    NSString *favicons = [CGApplicationSupportPath()
+        stringByAppendingPathComponent:@"AppData/Favicons"];
+    if (!CGRemoveDirectoryContents(favicons)) success = NO;
+    return success;
+}
+
+static BOOL CGClearWebsitePermissions(void) {
+    NSString *support = CGApplicationSupportPath();
+    BOOL success = CGSQLiteExecIfPresent(
+        [support stringByAppendingPathComponent:@"AppData/SitePermissions/SitePermissions"],
+        @[@"DELETE FROM site_permissions;"]);
+
+    // Gecko keeps site permission decisions in permissions.sqlite, separate
+    // from cookies.sqlite, web storage, saved logins and auth sessions.
+    // Only the permission records are cleared, not the Gecko profile.
+    for (NSString *path in CGFindFilesNamed(@"permissions.sqlite")) {
+        if (!CGSQLiteExecIfPresent(path, @[@"DELETE FROM moz_perms;"])) success = NO;
+    }
+    return success;
+}
+
+static BOOL CGClearDownloads(void) {
+    // Source parity: Reynard DownloadStore stores its manifest at AppData/
+    // DownloadStore and download files inside Documents/Downloads.
+    NSString *support = CGApplicationSupportPath();
+    NSString *manifest = [support stringByAppendingPathComponent:@"AppData/DownloadStore"];
+    NSString *directory = [NSHomeDirectory()
+                           stringByAppendingPathComponent:@"Documents/Downloads"];
+    BOOL files = CGRemoveDirectoryContents(directory);
+    BOOL records = CGRemoveFileIfPresent(manifest);
+    return files && records;
+}
+
+static BOOL CGClearOpenTabs(void) {
+    NSString *support = CGApplicationSupportPath();
+    NSString *tabs = [support stringByAppendingPathComponent:
+                      @"AppData/TabManagement/TabManagement"];
+
+    BOOL success = CGSQLiteExecIfPresent(tabs, @[
+        @"DELETE FROM recently_closed_tabs;",
+        @"DELETE FROM tabs;",
+        @"UPDATE tab_state SET selected_regular_tab_id=NULL, "
+         "selected_private_tab_id=NULL, selected_tab_mode='regular', "
+         "last_tab_overview='regular' WHERE id=1;"
+    ]);
+
+    // The source creates an initial tab automatically when no tabs restore.
+    // Remove stale thumbnails/navigation metadata for those closed tabs too.
+    NSString *thumbnails = [support stringByAppendingPathComponent:
+                            @"AppData/TabManagement/ThumbCache"];
+    NSString *navigation = [support stringByAppendingPathComponent:
+                            @"AppData/TabSessions"];
+    if (!CGRemoveDirectoryContents(thumbnails)) success = NO;
+    if (!CGRemoveDirectoryContents(navigation)) success = NO;
+    return success;
 }
 
 static void CGApplyHistoryPolicy(BOOL noHistory, BOOL clearExisting) {
@@ -257,29 +355,45 @@ static void CGDataMaintenanceInit(void) {
         if (!CGIsChatGPTApp()) return;
 
         BOOL noHistory = CGReadBool(@"dontSaveLocalHistory", NO);
-        BOOL clearHistory = CGReadBool(@"pendingClearHistory", NO);
-        BOOL clearCache = CGReadBool(@"pendingClearCache", NO);
+        NSUInteger mask = CGReadClearMask();
+        NSUInteger incomplete = mask;
 
-        CGApplyHistoryPolicy(noHistory, clearHistory || noHistory);
+        // Process the queued request before Reynard initializes Gecko and
+        // opens its DB stores. Never touch cookies, session tokens, saved
+        // passwords, storage/default, or ChatGPT's web-account data.
+        if (mask & CGClearHistoryBit) {
+            CGClearReynardHistory(noHistory);
+            CGClearGeckoVisitHistory();
+            incomplete &= ~CGClearHistoryBit;
+        } else {
+            CGApplyReynardNoHistoryPolicy(noHistory);
+        }
+        CGWriteGeckoHistoryPreference(noHistory);
 
-        if (clearHistory) {
-            CGWriteBool(@"pendingClearHistory", NO);
+        if (mask & CGClearCacheBit) {
+            if (CGClearLoginSafeCache()) incomplete &= ~CGClearCacheBit;
+        }
+        if (mask & CGClearPermissionsBit) {
+            if (CGClearWebsitePermissions()) incomplete &= ~CGClearPermissionsBit;
+        }
+        if (mask & CGClearDownloadsBit) {
+            if (CGClearDownloads()) incomplete &= ~CGClearDownloadsBit;
+        }
+        if (mask & CGClearTabsBit) {
+            if (CGClearOpenTabs()) incomplete &= ~CGClearTabsBit;
+        }
+        if (mask) {
+            CGWriteClearMask(incomplete);
+            NSLog(@"[ChatGPTGecko] Clear App Data processed: requested=%lu retry=%lu",
+                  (unsigned long)mask, (unsigned long)incomplete);
         }
 
-        if (clearCache) {
-            CGClearLoginSafeCache();
-            CGWriteBool(@"pendingClearCache", NO);
-        }
-
-        // On a first-ever launch Reynard/Gecko can create their stores after
-        // constructors run. Reapply only the history policy once after startup;
-        // this does not clear cookies, auth/session state, site storage, or
-        // permissions.
+        // Preserve the pre-existing Don't Save Local History setting.
+        // On a first-ever launch Gecko may create a history DB after startup.
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
                                      (int64_t)(2.5 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{
-            BOOL currentNoHistory =
-                CGReadBool(@"dontSaveLocalHistory", NO);
+            BOOL currentNoHistory = CGReadBool(@"dontSaveLocalHistory", NO);
             CGApplyHistoryPolicy(currentNoHistory, currentNoHistory);
         });
     }
