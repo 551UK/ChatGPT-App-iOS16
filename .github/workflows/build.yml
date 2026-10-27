@@ -2,7 +2,7 @@ name: Build ChatGPT App (iOS 16)
 
 on:
   push:
-    branches: [disable-reynard-remote-registration-v54]
+    branches: [login-safe-clear-data-v55]
   workflow_dispatch:
 
 concurrency:
@@ -40,7 +40,7 @@ jobs:
           set -euo pipefail
           git fetch origin main --depth=1
           git diff --exit-code ad1e79623d0b2292c932701d6ab3f9c7b97012c3 HEAD -- src/ChatGPTShell.m
-          git diff --exit-code origin/main HEAD -- prefs src/ChatGPTDataMaintenance.m
+          git diff --exit-code origin/main HEAD -- prefs/PreferenceLoader.plist prefs/Resources/Info.plist
           test -s src/ChatGPTContextMenu.m
           grep -Fq 'CGChatGPTContextMenuFactory' src/ChatGPTContextMenu.m
           grep -Fq 'ChatGPTContextMenu.m' scripts/package.sh
@@ -57,7 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-54_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-55_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/ChatGPTPrefs'
@@ -148,16 +148,29 @@ jobs:
           grep -Fq 'ChatGPTExternalLinks.m' scripts/package.sh
           grep -Fq 'UIApplicationOpenURLOptionUniversalLinksOnly' src/ChatGPTExternalLinks.m
           grep -Fq 'Handing external URL to default browser' src/ChatGPTExternalLinks.m
-          grep -Fq 'pendingClearHistory' src/ChatGPTDataMaintenance.m
-          grep -Fq 'pendingClearCache' src/ChatGPTDataMaintenance.m
+          grep -Fq 'pendingClearCategories' src/ChatGPTDataMaintenance.m
+          grep -Fq 'CGClearWebsitePermissions' src/ChatGPTDataMaintenance.m
+          grep -Fq 'CGClearDownloads' src/ChatGPTDataMaintenance.m
+          grep -Fq 'CGClearOpenTabs' src/ChatGPTDataMaintenance.m
+          ! grep -Fq 'pendingClearHistory' src/ChatGPTDataMaintenance.m
+          ! grep -Fq 'pendingClearCache' src/ChatGPTDataMaintenance.m
+          test -s prefs/CGPClearDataController.m
+          grep -Fq 'CGPClearDataController.m' prefs/Makefile
+          grep -Fq 'CGTerminateChatGPT' prefs/CGPClearDataController.m
+          grep -Fq 'CFSTR("pendingClearCategories")' prefs/CGPClearDataController.m
+          ! grep -Fq 'Cookies and Website Data' prefs/CGPClearDataController.m
+          ! grep -Fq 'clearHistory:(id)' prefs/ChatGPTPrefs.m
+          ! grep -Fq 'clearCache:(id)' prefs/ChatGPTPrefs.m
           grep -Fq 'places.history.enabled' src/ChatGPTDataMaintenance.m
           grep -Fq 'cg_chatgpt_no_local_history' src/ChatGPTDataMaintenance.m
           ! grep -Fq 'cookies.sqlite' src/ChatGPTDataMaintenance.m
           ! grep -Fq 'SitePermissions' src/ChatGPTDataMaintenance.m
           ! grep -Fq 'storage/default' src/ChatGPTDataMaintenance.m
           grep -Fq 'loadSpecifiersFromPlistName:@"Root"' prefs/ChatGPTPrefs.m
-          grep -Fq '<string>Clear Local Browsing History</string>' prefs/Resources/Root.plist
-          grep -Fq '<string>Clear Cache</string>' prefs/Resources/Root.plist
+          grep -Fq '<string>Clear App Data</string>' prefs/Resources/Root.plist
+          grep -Fq '<string>openClearAppData:</string>' prefs/Resources/Root.plist
+          ! grep -Fq '<string>clearHistory:</string>' prefs/Resources/Root.plist
+          ! grep -Fq '<string>clearCache:</string>' prefs/Resources/Root.plist
           grep -Fq "<string>Don't Save Local Browsing History</string>" prefs/Resources/Root.plist
           grep -Fq '<string>View on GitHub</string>' prefs/Resources/Root.plist
           grep -Fq '<string>GOOD TO KNOW</string>' prefs/Resources/Root.plist
@@ -190,12 +203,13 @@ jobs:
               items = root_plist["items"]
               labels = [item.get("label") for item in items if isinstance(item, dict)]
               assert "BROWSING DATA" in labels
-              assert "Clear Local Browsing History" in labels
-              assert "Clear Cache" in labels
+              assert "Clear App Data" in labels
+              assert "Clear Local Browsing History" not in labels
+              assert "Clear Cache" not in labels
               assert "GOOD TO KNOW" in labels
               assert any(item.get("cellClass") == "CGPGuideCell" for item in items if isinstance(item, dict))
-              assert any(item.get("action") == "clearHistory:" for item in items if isinstance(item, dict))
-              assert any(item.get("action") == "clearCache:" for item in items if isinstance(item, dict))
+              assert any(item.get("action") == "openClearAppData:" for item in items if isinstance(item, dict))
+              assert not any(item.get("action") in ("clearHistory:", "clearCache:") for item in items if isinstance(item, dict))
 
               entry = plistlib.loads(entry_path.read_bytes())["entry"]
               expected_icon = "/var/jb/Library/PreferenceLoader/Preferences/ChatGPT.png"
@@ -232,6 +246,6 @@ jobs:
           # The actual Settings loading and icon rendering must still be device-tested.
       - uses: actions/upload-artifact@v4
         with:
-          name: ChatGPT-0.19.0-54-CLEAN-MEDIA-ROLLBACK
-          path: dist/com.551uk.chatgptgecko_0.19.0-54_iphoneos-arm64.deb
+          name: ChatGPT-0.19.0-55-CLEAN-MEDIA-ROLLBACK
+          path: dist/com.551uk.chatgptgecko_0.19.0-55_iphoneos-arm64.deb
           if-no-files-found: error
