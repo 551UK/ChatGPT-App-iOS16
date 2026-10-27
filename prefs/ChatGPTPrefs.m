@@ -152,7 +152,7 @@ static BOOL CGPrepareAppearanceTab(NSString **errorMessage) {
     return ok;
 }
 
-static void CGTerminateChatGPT(void) {
+void CGTerminateChatGPT(void) {
     dlopen("/System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices",
            RTLD_LAZY);
 
@@ -388,9 +388,11 @@ static void CGSetPreference(NSString *key, id value) {
     UITableViewCell *cell = [super tableView:tableView cellForRowAtIndexPath:indexPath];
     NSString *identifier = [[self specifierAtIndexPath:indexPath] propertyForKey:@"id"];
 
-    if ([identifier isEqualToString:@"clearHistory"] ||
-        [identifier isEqualToString:@"clearCache"]) {
-        cell.textLabel.textColor = UIColor.systemBlueColor;
+    if ([identifier isEqualToString:@"clearAppData"]) {
+        cell.textLabel.textColor = UIColor.systemRedColor;
+        cell.imageView.image = [UIImage systemImageNamed:@"trash.circle"];
+        cell.imageView.tintColor = UIColor.systemRedColor;
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     }
 
     if ([identifier isEqualToString:@"appearanceLink"]) {
@@ -454,9 +456,6 @@ static void CGSetPreference(NSString *key, id value) {
 - (void)setNoHistory:(id)value specifier:(PSSpecifier *)specifier {
     BOOL enabled = [value boolValue];
     CGSetPreference(@"dontSaveLocalHistory", @(enabled));
-    if (enabled) {
-        CGSetPreference(@"pendingClearHistory", @YES);
-    }
 }
 
 - (void)showQueuedAlertWithTitle:(NSString *)title message:(NSString *)message {
@@ -470,16 +469,15 @@ static void CGSetPreference(NSString *key, id value) {
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (void)clearHistory:(id)sender {
-    CGSetPreference(@"pendingClearHistory", @YES);
-    [self showQueuedAlertWithTitle:@"Local History Queued"
-                           message:@"Local browsing history will be cleared the next time ChatGPT opens. Your login and conversations will be preserved."];
-}
-
-- (void)clearCache:(id)sender {
-    CGSetPreference(@"pendingClearCache", @YES);
-    [self showQueuedAlertWithTitle:@"Cache Clear Queued"
-                           message:@"The local browser cache will be cleared the next time ChatGPT opens. Your login and conversations will be preserved."];
+- (void)openClearAppData:(id)sender {
+    Class controllerClass = NSClassFromString(@"CGPClearDataController");
+    if (!controllerClass) {
+        [self showQueuedAlertWithTitle:@"Unable to Open"
+                               message:@"Clear App Data settings are not installed."];
+        return;
+    }
+    UIViewController *controller = [controllerClass new];
+    [self.navigationController pushViewController:controller animated:YES];
 }
 
 - (void)openAppearance:(id)sender {
