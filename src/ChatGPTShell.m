@@ -8,7 +8,6 @@
 #import <objc/message.h>
 #import <AVFoundation/AVFoundation.h>
 #import <QuartzCore/QuartzCore.h>
-#import <math.h>
 
 static NSString *const CGBundleID = @"com.551uk.chatgptios16";
 static NSString *const CGHomeURL = @"https://chatgpt.com/";
@@ -18,9 +17,7 @@ static IMP CGOriginalControllerLayout = NULL;
 static IMP CGOriginalControllerAppear = NULL;
 static IMP CGOriginalUIViewSetHidden = NULL;
 static IMP CGOriginalUIViewBounds = NULL;
-static IMP CGOriginalUIViewSetTransform = NULL;
 static BOOL CGHooksInstalled = NO;
-static BOOL CGKeyboardVisible = NO;
 static const void *CGConstraintsAdjustedKey = &CGConstraintsAdjustedKey;
 static const void *CGLayoutPendingKey = &CGLayoutPendingKey;
 static const void *CGToolbarRelayoutKey = &CGToolbarRelayoutKey;
@@ -28,28 +25,6 @@ static const void *CGStartupOverlayKey = &CGStartupOverlayKey;
 
 static BOOL CGIsOurApp(void) {
     return [[[NSBundle mainBundle] bundleIdentifier] isEqualToString:CGBundleID];
-}
-
-static void CGArmKeyboardTracking(void) {
-    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-    [center addObserverForName:UIKeyboardWillShowNotification
-                        object:nil
-                         queue:NSOperationQueue.mainQueue
-                    usingBlock:^(__unused NSNotification *note) {
-        CGKeyboardVisible = YES;
-    }];
-    [center addObserverForName:UIKeyboardWillHideNotification
-                        object:nil
-                         queue:NSOperationQueue.mainQueue
-                    usingBlock:^(__unused NSNotification *note) {
-        CGKeyboardVisible = NO;
-    }];
-    [center addObserverForName:UIKeyboardDidHideNotification
-                        object:nil
-                         queue:NSOperationQueue.mainQueue
-                    usingBlock:^(__unused NSNotification *note) {
-        CGKeyboardVisible = NO;
-    }];
 }
 
 
@@ -451,60 +426,16 @@ static CGRect CGBottomToolbarBounds(UIView *self, SEL cmd) {
     return bounds;
 }
 
-static void CGContentViewSetTransform(UIView *self, SEL cmd, CGAffineTransform requested) {
-    // Reynard has a browser-specific "focused input relocation" path that
-    // translates its entire ContentView upward when the keyboard appears.
-    // ChatGPT already lays its composer out against the iOS keyboard, so that
-    // second relocation creates the large blank strip seen above the keyboard.
-    //
-    // Suppress only a pure upward Y translation while the keyboard is visible.
-    // Horizontal/history transforms and all non-keyboard transforms remain
-    // untouched.
-    BOOL pureTranslation =
-      fabs(requested.a - 1.0) < 0.001 &&
-      fabs(requested.b) < 0.001 &&
-      fabs(requested.c) < 0.001 &&
-      fabs(requested.d - 1.0) < 0.001 &&
-      fabs(requested.tx) < 0.5;
-
-    if (CGIsOurApp() && CGKeyboardVisible && pureTranslation && requested.ty < -0.5) {
-        requested = CGAffineTransformIdentity;
-    }
-
-    if (CGOriginalUIViewSetTransform) {
-        ((void (*)(id,SEL,CGAffineTransform))CGOriginalUIViewSetTransform)(self, cmd, requested);
-    }
-}
-
-static void CGInstallFocusedInputRelocationSuppression(void) {
-    static BOOL installed = NO;
-    if (installed || !CGIsOurApp()) return;
-
-    Class contentView = NSClassFromString(@"Reynard.ContentView");
-    if (!contentView) contentView = NSClassFromString(@"_TtC7Reynard11ContentView");
-    if (!contentView) return;
-
-    Method transformMethod = class_getInstanceMethod(UIView.class, @selector(setTransform:));
-    if (!transformMethod) return;
-
-    CGOriginalUIViewSetTransform = method_getImplementation(transformMethod);
-    class_replaceMethod(contentView,
-                        @selector(setTransform:),
-                        (IMP)CGContentViewSetTransform,
-                        method_getTypeEncoding(transformMethod));
-    installed = YES;
-    NSLog(@"[ChatGPTGecko] Reynard focused-input keyboard relocation suppressed");
-}
-
 static void CGInstallChromeSuppression(void) {
-    CGInstallFocusedInputRelocationSuppression();
     static BOOL installed = NO;
     if (installed) return;
 
     Class browserChrome = NSClassFromString(@"Reynard.BrowserChrome");
     Class bottomToolbar = NSClassFromString(@"Reynard.BottomToolbar");
     Class overview = NSClassFromString(@"Reynard.TabOverview");
-    if (!browserChrome || !bottomToolbar || !overview) return;
+    Class actionBar = NSClassFromString(@"Reynard.ActionBar");
+    if (!actionBar) actionBar = NSClassFromString(@"_TtC7Reynard9ActionBar");
+    if (!browserChrome || !bottomToolbar || !overview || !actionBar) return;
 
     Method hiddenMethod = class_getInstanceMethod(UIView.class, @selector(setHidden:));
     Method boundsMethod = class_getInstanceMethod(UIView.class, @selector(bounds));
@@ -517,6 +448,13 @@ static void CGInstallChromeSuppression(void) {
                         method_getTypeEncoding(hiddenMethod));
     class_replaceMethod(overview, @selector(setHidden:), (IMP)CGAlwaysHideChrome,
                         method_getTypeEncoding(hiddenMethod));
+    // Reynard normally shows a compact keyboard-dismissal ActionBar whenever
+    // a page input is focused. Our app hides all browser chrome, but unless the
+    // ActionBar itself is marked hidden Reynard still reserves its height when
+    // calculating focused-input relocation above the keyboard. Force this
+    // hidden too so ChatGPT's composer is lifted only to the keyboard edge.
+    class_replaceMethod(actionBar, @selector(setHidden:), (IMP)CGAlwaysHideChrome,
+                        method_getTypeEncoding(hiddenMethod));
 
     // This is the actual viewport-gap fix: ToolbarController reads the hidden
     // BottomToolbar's bounds to calculate Gecko's dynamic-toolbar geometry.
@@ -524,7 +462,7 @@ static void CGInstallChromeSuppression(void) {
     class_replaceMethod(bottomToolbar, @selector(bounds), (IMP)CGBottomToolbarBounds,
                         method_getTypeEncoding(boundsMethod));
 
-    NSLog(@"[ChatGPTGecko] Chrome hidden; bottom toolbar viewport height forced to zero");
+    NSLog(@"[ChatGPTGecko] Chrome hidden; action bar suppressed; bottom toolbar viewport height forced to zero");
     installed = YES;
 }
 
@@ -683,7 +621,6 @@ static void CGStart(void) {
         CGEnsureStartupTab();
         CGInstallHooks();
         CGArmIOSMicrophonePrompt();
-        CGArmKeyboardTracking();
         dispatch_async(dispatch_get_main_queue(), ^{ CGInstallChromeSuppression(); });
     }
 }
