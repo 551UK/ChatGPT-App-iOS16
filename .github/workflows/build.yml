@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-19_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-20_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
@@ -64,6 +64,8 @@ jobs:
           grep -Fq 'CGToolbarRelayoutKey' src/ChatGPTShell.m
           grep -Fq 'ChatGPTNativeStartupLoader' src/ChatGPTShell.m
           grep -Fq 'ChatGPTStartupIconSpin' src/ChatGPTShell.m
+          grep -Fq 'CGInstallFocusedInputRelocationSuppression' src/ChatGPTShell.m
+          grep -Fq 'CGKeyboardVisible' src/ChatGPTShell.m
           grep -Fq 'StartupLoaderIcon.png' src/ChatGPTShell.m
           ! grep -Fq 'UIActivityIndicatorView' src/ChatGPTShell.m
           ! grep -Fq 'label.text = @"ChatGPT"' src/ChatGPTShell.m
@@ -76,6 +78,9 @@ jobs:
           grep -Fq 'data-cg-ios16-preparing' web/chatgpt-app-shell.js
           ! grep -Fq 'cg-ios16-composer' web/chatgpt-app-shell.js
           ! grep -Fq 'moveComposerDown' web/chatgpt-app-shell.js
+          ! grep -Fq 'keyboardAdjustedElement' web/chatgpt-app-shell.js
+          ! grep -Fq 'removeKeyboardGap' web/chatgpt-app-shell.js
+          grep -Fq 'dismissAppPromotion' web/chatgpt-app-shell.js
           grep -Fq '"run_at": "document_start"' scripts/package.sh
           find build/work/unpacked/Payload/ChatGPT.app -path '*/extensions/readerview/chatgpt-app-shell.js' -type f | grep -q .
           grep -Fq 'Reynard-Jailbroken.ipa' scripts/package.sh
@@ -99,7 +104,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-19. The mobile-web 'Do more with the ChatGPT app' promotion is suppressed before paint and dismissed invisibly. While the iOS keyboard is open, the ChatGPT message bar now measures and removes the extra Gecko/web gap so it sits against the keyboard. Existing startup loader, microphone permissions, no-flash cleanup, full-screen layout, viewport fix and swipe-right Back remain unchanged. Rootless Dopamine DEB plus test IPA."
+          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-20. Restores the exact 0.18 web composer presentation, keeps the mobile-web app-promotion hidden before paint, and removes the keyboard gap at the native Reynard layer by suppressing only its extra upward focused-input ContentView translation while the iOS keyboard is visible. Existing startup loader, microphone permissions, no-flash cleanup, full-screen layout, viewport fix and swipe-right Back remain unchanged. Rootless Dopamine DEB plus test IPA."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
