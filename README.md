@@ -11,13 +11,13 @@ Experimental **ChatGPT app** using the complete mobile website at https://chatgp
 
 ## Installation
 
-Download the `com.551uk.chatgptgecko_0.19.0-5_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
+Download the `com.551uk.chatgptgecko_0.19.0-6_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
 
 ## App-style navigation and microphone
 
-The real ChatGPT website is the primary interface, because it already provides current conversations, attachments, search and account features. The floating **•••** recovery button has been removed. Reynard's URL bar, bottom toolbar and tab overview remain hidden. A small native back control is reserved for voice routes so a fullscreen voice page cannot trap you; normal chats use ChatGPT's own header/sidebar navigation.
+The real ChatGPT website remains the conversation engine because it already provides current conversations, attachments, search and account features. Reynard's URL bar, bottom toolbar and tab overview are hidden. Interface work now adds an official-app-style fixed **New Chat** compose control without replacing the website's working hamburger/sidebar or login/account controls. A small native back control is reserved for voice routes so a fullscreen voice page cannot trap you.
 
-The site-origin prompt (“Allow chatgpt.com to use your microphone?”) remains set to **Ask**, matching standalone Reynard. This build also changes the app/helper bundle identity once so iOS treats it as a fresh microphone-permission client. iOS itself cannot be silently pre-authorized by the app; after you approve its system microphone prompt once, that authorization persists until changed in Settings. If needed later, the Gecko site permission can be changed to pre-allowed without bypassing iOS consent.
+For this dedicated ChatGPT wrapper, Reynard's **chatgpt.com microphone site permission is pre-allowed** so the browser-level prompt does not have to be repeated. The app explicitly asks iOS for microphone authorization on first active launch when the system state is still Not Determined. iOS itself cannot be silently pre-authorized; the system prompt must still be accepted once. The Swift Gecko bridge also resets Reynard's hidden toolbar geometry inside Gecko so the web viewport no longer reserves a blank bottom strip.
 
 ## Building
 
@@ -27,7 +27,7 @@ GitHub Actions downloads the official **Reynard-Jailbroken.ipa** from the fixed 
 
 This package and shell integration are **device-tested iteratively on iOS 16**, but this permission/base change still requires verification. Upstream browser UI changes can affect the hide/layout hook. Gecko JIT, login and file pickers must be tested on a real iOS 16 device. If the hook fails, the app should remain an ordinary usable Reynard browser.
 
-The app uses the user's supplied blue-to-purple ChatGPT home-screen icon, embedded directly in the reproducible icon generator. Reynard's URL handlers and optional Open In extension are removed, and its Gecko helper uses a distinct app identifier.
+The app uses the user's supplied blue-to-purple ChatGPT home-screen icon, embedded directly in the reproducible icon generator. The official ChatGPT 1.2026.272 and 1.2024.200 IPAs are used only as interface/navigation references; their messaging implementation is not copied. Reynard's URL handlers and optional Open In extension are removed, and its Gecko helper uses a distinct app identifier.
 
 ## Acknowledgements and licensing
 
