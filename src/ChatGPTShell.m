@@ -190,13 +190,17 @@ static void CGEnsureStartupTab(void) {
     NSLog(@"[ChatGPTGecko] Startup tab prepared: %@", chatID ?: @"failure");
 }
 
-// Full-screen app navigation: no visible browser controls. A left-edge
-// rightward swipe maps to Reynard/Gecko history back, matching a native app
-// gesture while leaving the ChatGPT website itself visually uninterrupted.
-@interface CGAppNavigation : NSObject <UIGestureRecognizerDelegate>
+// App-style history navigation. Gecko remains the page engine, but Reynard's
+// normal browser chrome stays hidden. Only two small history controls remain.
+@interface CGAppNavigation : NSObject
 @property(nonatomic,weak) UIViewController *owner;
-@property(nonatomic,strong) UIScreenEdgePanGestureRecognizer *backGesture;
+@property(nonatomic,strong) UIView *bar;
+@property(nonatomic,strong) UIView *divider;
+@property(nonatomic,strong) UIButton *backButton;
+@property(nonatomic,strong) UIButton *forwardButton;
+@property(nonatomic,strong) NSLayoutConstraint *heightConstraint;
 - (void)installInController:(UIViewController *)controller;
+- (void)updateLayout;
 @end
 
 @implementation CGAppNavigation
@@ -209,34 +213,101 @@ static void CGEnsureStartupTab(void) {
     }
 }
 
-- (void)handleBackSwipe:(UIScreenEdgePanGestureRecognizer *)gesture {
-    if (gesture.state != UIGestureRecognizerStateEnded) return;
-    CGPoint translation = [gesture translationInView:gesture.view];
-    CGPoint velocity = [gesture velocityInView:gesture.view];
-    if (translation.x > 55.0 && velocity.x >= 0.0) {
-        [self goBack];
+- (void)goForward {
+    UIViewController *owner = self.owner;
+    SEL action = NSSelectorFromString(@"goForwardKeyCommand:");
+    if (owner && [owner respondsToSelector:action]) {
+        ((void (*)(id,SEL,id))objc_msgSend)(owner, action, nil);
     }
 }
 
-- (void)installInController:(UIViewController *)controller {
-    if (self.backGesture) return;
-    self.owner = controller;
-
-    UIScreenEdgePanGestureRecognizer *gesture =
-      [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self
-                                                       action:@selector(handleBackSwipe:)];
-    gesture.edges = UIRectEdgeLeft;
-    gesture.cancelsTouchesInView = NO;
-    gesture.delegate = self;
-    [controller.view addGestureRecognizer:gesture];
-    self.backGesture = gesture;
-
-    NSLog(@"[ChatGPTGecko] Full-screen swipe-back navigation installed");
+- (UIButton *)makeButtonWithSymbol:(NSString *)symbol
+                             label:(NSString *)label
+                        identifier:(NSString *)identifier
+                            action:(SEL)action {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    UIImageSymbolConfiguration *config =
+      [UIImageSymbolConfiguration configurationWithPointSize:15.0
+                                                       weight:UIImageSymbolWeightSemibold];
+    [button setImage:[[UIImage systemImageNamed:symbol] imageWithConfiguration:config]
+            forState:UIControlStateNormal];
+    button.tintColor = UIColor.labelColor;
+    button.backgroundColor =
+      [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:0.78];
+    button.layer.cornerRadius = 17.0;
+    button.accessibilityLabel = label;
+    button.accessibilityIdentifier = identifier;
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    return button;
 }
 
-- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
- shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
-    return YES;
+- (void)installInController:(UIViewController *)controller {
+    if (self.bar) return;
+    self.owner = controller;
+    UIView *root = controller.view;
+
+    UIView *bar = [UIView new];
+    bar.translatesAutoresizingMaskIntoConstraints = NO;
+    bar.backgroundColor = UIColor.systemBackgroundColor;
+    bar.accessibilityIdentifier = @"ChatGPTBottomNavigation";
+    [root addSubview:bar];
+    self.bar = bar;
+
+    UIView *divider = [UIView new];
+    divider.translatesAutoresizingMaskIntoConstraints = NO;
+    divider.backgroundColor = [UIColor.separatorColor colorWithAlphaComponent:0.16];
+    [bar addSubview:divider];
+    self.divider = divider;
+
+    UIButton *back =
+      [self makeButtonWithSymbol:@"chevron.left"
+                           label:@"Back"
+                      identifier:@"ChatGPTBackButton"
+                          action:@selector(goBack)];
+    UIButton *forward =
+      [self makeButtonWithSymbol:@"chevron.right"
+                           label:@"Forward"
+                      identifier:@"ChatGPTForwardButton"
+                          action:@selector(goForward)];
+    [bar addSubview:back];
+    [bar addSubview:forward];
+    self.backButton = back;
+    self.forwardButton = forward;
+
+    self.heightConstraint =
+      [bar.heightAnchor constraintEqualToConstant:48.0 + root.safeAreaInsets.bottom];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [bar.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+        [bar.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+        [bar.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
+        self.heightConstraint,
+
+        [divider.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor],
+        [divider.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor],
+        [divider.topAnchor constraintEqualToAnchor:bar.topAnchor],
+        [divider.heightAnchor constraintEqualToConstant:0.5],
+
+        [back.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:12.0],
+        [back.topAnchor constraintEqualToAnchor:bar.topAnchor constant:7.0],
+        [back.widthAnchor constraintEqualToConstant:34.0],
+        [back.heightAnchor constraintEqualToConstant:34.0],
+
+        [forward.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor constant:-12.0],
+        [forward.topAnchor constraintEqualToAnchor:bar.topAnchor constant:7.0],
+        [forward.widthAnchor constraintEqualToConstant:34.0],
+        [forward.heightAnchor constraintEqualToConstant:34.0],
+    ]];
+
+    NSLog(@"[ChatGPTGecko] Bottom Back/Forward navigation installed");
+}
+
+- (void)updateLayout {
+    UIViewController *owner = self.owner;
+    if (!owner.isViewLoaded || !self.bar) return;
+    self.heightConstraint.constant = 48.0 + owner.view.safeAreaInsets.bottom;
+    [owner.view bringSubviewToFront:self.bar];
 }
 @end
 
@@ -336,9 +407,10 @@ static void CGApplyAppLayout(UIViewController *controller) {
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         [navigation installInController:controller];
     }
+    [navigation updateLayout];
 
-    // True app-style presentation: fill the entire screen below the status
-    // bar. There is no visible toolbar/footer/nav strip at the bottom.
+    // ChatGPT fills the full app area above our compact native history strip.
+    // Reynard's own browser toolbar reserves no space and remains hidden.
     NSArray<NSLayoutConstraint *> *ours =
       objc_getAssociatedObject(content, CGConstraintsAdjustedKey);
     if (!ours) {
@@ -347,7 +419,7 @@ static void CGApplyAppLayout(UIViewController *controller) {
             [content.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
             [content.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
             [content.topAnchor constraintEqualToAnchor:root.safeAreaLayoutGuide.topAnchor],
-            [content.bottomAnchor constraintEqualToAnchor:root.bottomAnchor]
+            [content.bottomAnchor constraintEqualToAnchor:navigation.bar.topAnchor]
         ];
         objc_setAssociatedObject(content, CGConstraintsAdjustedKey, ours,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -369,6 +441,7 @@ static void CGApplyAppLayout(UIViewController *controller) {
     }
 
     [root bringSubviewToFront:content];
+    [navigation updateLayout];
 }
 
 // Schedule after the upstream override finishes laying out browser chrome.
