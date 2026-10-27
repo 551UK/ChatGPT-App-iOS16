@@ -32,9 +32,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-4_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-5_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
-          dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPTGecko.app/Info.plist'
+          dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
           otool -L "$MAIN" | grep -F '@executable_path/Frameworks/ChatGPTShell.dylib'
           test -s build/work/unpacked/Payload/ChatGPT.app/AppIcon60x60@3x.png
@@ -46,16 +46,19 @@ jobs:
           root = Path("build/work/unpacked/Payload/ChatGPT.app")
           app = plistlib.loads((root / "Info.plist").read_bytes())
           helper = plistlib.loads((root / "PlugIns/Reynard Helper.appex/Info.plist").read_bytes())
-          assert app["CFBundleIdentifier"] == "com.551uk.chatgptgecko"
+          assert app["CFBundleIdentifier"] == "com.551uk.chatgptios16"
           assert app["CFBundleDisplayName"] == "ChatGPT"
           assert "CFBundleURLTypes" not in app, "ChatGPT must never claim Reynard/http/https URL schemes"
-          assert helper["CFBundleIdentifier"] == "com.551uk.chatgptgecko.Helper"
+          assert helper["CFBundleIdentifier"] == "com.551uk.chatgptios16.Helper"
           assert "NSMicrophoneUsageDescription" in app
           assert "NSMicrophoneUsageDescription" in helper
           print("Verified app isolation: separate app/profile/helper, microphone declarations, no browser URL schemes")
           PY
           grep -Fq 'CGControllerDidLayout' src/ChatGPTShell.m
           grep -Fq 'CGAlwaysHideChrome' src/ChatGPTShell.m
+          grep -Fq 'ChatGPTVoiceBack' src/ChatGPTShell.m
+          ! grep -Fq 'ChatGPTAppOptions' src/ChatGPTShell.m
+          grep -Fq 'Reynard-Jailbroken.ipa' scripts/package.sh
           # The actual runtime navigation/microphone UI must be device-tested.
       - uses: actions/upload-artifact@v4
         with:
@@ -64,7 +67,7 @@ jobs:
             dist/ChatGPT-Gecko-iOS16.ipa
             dist/*.deb
           if-no-files-found: error
-      - name: Publish latest test IPA
+      - name: Publish latest test build
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -76,7 +79,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT Gecko iOS 16 test v0.19.0-4. Fixes visible Reynard top URL and bottom browser toolbar by enforcing app-only layout on appearance and relayout; preserves ChatGPT web sidebar/chat UI and website microphone prompt behavior. Native options menu includes Back to chats, New chat, iOS microphone and Reload. Rootless DEB for Dopamine and TrollStore IPA. Device verification required."
+          NOTES="ChatGPT Gecko iOS 16 test v0.19.0-5. Fixes visible Reynard top URL and bottom browser toolbar by enforcing app-only layout on appearance and relayout; preserves ChatGPT web sidebar/chat UI and website microphone prompt behavior. Native options menu includes Back to chats, New chat, iOS microphone and Reload. Rootless DEB for Dopamine and TrollStore IPA. Device verification required."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
