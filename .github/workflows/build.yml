@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-9_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-10_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
@@ -56,10 +56,12 @@ jobs:
           PY
           grep -Fq 'CGControllerDidLayout' src/ChatGPTShell.m
           grep -Fq 'CGAlwaysHideChrome' src/ChatGPTShell.m
-          grep -Fq 'UIScreenEdgePanGestureRecognizer' src/ChatGPTShell.m
+          grep -Fq 'ChatGPTBottomNavigation' src/ChatGPTShell.m
+          grep -Fq 'ChatGPTBackButton' src/ChatGPTShell.m
+          grep -Fq 'ChatGPTForwardButton' src/ChatGPTShell.m
           grep -Fq 'goBackKeyCommand:' src/ChatGPTShell.m
-          ! grep -Fq 'ChatGPTBottomNavigation' src/ChatGPTShell.m
-          ! grep -Fq 'ChatGPTForwardButton' src/ChatGPTShell.m
+          grep -Fq 'goForwardKeyCommand:' src/ChatGPTShell.m
+          ! grep -Fq 'UIScreenEdgePanGestureRecognizer' src/ChatGPTShell.m
           grep -Fq 'CGChromeSafeAreaInsets' src/ChatGPTShell.m
           grep -Fq 'CGZeroBottomToolbarFrame' src/ChatGPTShell.m
           grep -Fq 'CGPreallowChatGPTMicrophoneSite' src/ChatGPTShell.m
@@ -70,7 +72,6 @@ jobs:
           ! grep -Fq 'ChatGPTAppOptions' src/ChatGPTShell.m
           ! grep -Fq 'ChatGPTNewChat' src/ChatGPTShell.m
           ! grep -Fq 'composeButton' src/ChatGPTShell.m
-          grep -Fq 'safe-area-inset-bottom' web/chatgpt-app-shell.js
           grep -Fq 'Reynard-Jailbroken.ipa' scripts/package.sh
           # The actual runtime navigation/microphone UI must be device-tested.
       - uses: actions/upload-artifact@v4
@@ -92,7 +93,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-9. Removes all visible native navigation controls for a seamless full-screen ChatGPT view. The page fills to the bottom of the device, with the Ask ChatGPT composer docked at the real bottom safe area. Navigation back is gesture-only: swipe right from the left edge to trigger Gecko history back. No forward control is shown. Keeps the working microphone permission flow, hides the AI/disclaimer footer text and the 'What can you do?' suggestion, and keeps all Reynard URL/tab/share chrome hidden. Rootless Dopamine DEB plus test IPA."
+          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-10. Restores the requested visible app-style history controls: Back at the bottom-left and Forward at the bottom-right, with no URL field, tabs, share button or browser branding. The real ChatGPT website fills the area above that compact strip. The Gecko presentation script hides the small AI/disclaimer footer text, removes the 'What can you do?' suggestion, and docks the Ask ChatGPT composer to the bottom of the web area directly above the native navigation. Keeps the working microphone permission behavior unchanged. Rootless Dopamine DEB plus test IPA."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
