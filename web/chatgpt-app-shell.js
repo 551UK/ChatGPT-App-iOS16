@@ -99,13 +99,19 @@
 
   function dismissAppPromotion() {
     const controls = new Set(["stay on web", "open the app"]);
+    const newPromoHeadline = "chatgpt is better in the app";
     let stayOnWebButton = null;
+    let closeButton = null;
     let hiddenSurface = null;
+    let matchedNewPromo = false;
 
-    // Do not key this to one headline. ChatGPT has already used multiple
-    // versions of the same mobile-app promotion ("Do more with..." and
-    // "ChatGPT is better in the app"). The stable part is the pair of
-    // actions: "Stay on web" and "Open the app".
+    // ChatGPT currently has two mobile-app promotion variants:
+    // 1) a modal with "Stay on web" + "Open the app"
+    // 2) a compact bottom card headed "ChatGPT is better in the app"
+    //    with an X + "Open the app".
+    //
+    // Match the controls/headline rather than transient CSS class names so
+    // minor web UI changes do not make the promotion visible again.
     for (const button of document.querySelectorAll("button, [role='button']")) {
       const label = normalizedText(button).toLowerCase();
       if (!controls.has(label)) continue;
@@ -118,7 +124,8 @@
         const text = normalizedText(node).toLowerCase();
         const hasStay = text.includes("stay on web");
         const hasOpen = text.includes("open the app");
-        if (!hasStay && !hasOpen) continue;
+        const hasNewHeadline = text.includes(newPromoHeadline);
+        if (!hasOpen && !hasStay && !hasNewHeadline) continue;
 
         const role = (node.getAttribute("role") || "").toLowerCase();
         const ariaModal = (node.getAttribute("aria-modal") || "").toLowerCase();
@@ -131,8 +138,20 @@
           rect.height >= innerHeight * 0.36;
         const hasBothActions = hasStay && hasOpen;
 
-        if (isDialog || isLargeOverlay || hasBothActions) {
+        // The newer card is much smaller than the old modal. Require both its
+        // exact headline and Open-the-app CTA, then choose the smallest
+        // reasonable ancestor so we never hide the ChatGPT composer beneath it.
+        const isNewPromoCard =
+          hasNewHeadline &&
+          hasOpen &&
+          rect.width >= Math.min(innerWidth * 0.70, 280) &&
+          rect.height >= 110 &&
+          rect.height <= Math.min(innerHeight * 0.55, 460) &&
+          text.length <= 420;
+
+        if (isNewPromoCard || isDialog || isLargeOverlay || hasBothActions) {
           hiddenSurface = node;
+          matchedNewPromo = isNewPromoCard;
           break;
         }
       }
@@ -142,54 +161,86 @@
 
     if (!hiddenSurface) return false;
 
-    // Hide first, synchronously, while the MutationObserver callback is still
-    // running before the browser's next paint. This is what prevents the
-    // promotion from visibly appearing and then disappearing.
+    // Hide synchronously from the MutationObserver callback so the card/modal
+    // never reaches a rendered frame.
     hiddenSurface.dataset.cgIos16Hidden = "1";
     hiddenSurface.dataset.cgIos16AppPromo = "1";
     hiddenSurface.classList.add("cg-ios16-hide");
 
-    // If the dialog is wrapped in a full-screen fixed backdrop, hide that too
-    // before acknowledging "Stay on web".
     let blocker = hiddenSurface;
-    for (let depth = 0, parent = hiddenSurface.parentElement;
-         parent && depth < 6 && parent !== document.body && parent !== document.documentElement;
-         depth++, parent = parent.parentElement) {
-      const text = normalizedText(parent).toLowerCase();
-      if (!text.includes("stay on web") && !text.includes("open the app")) continue;
 
-      const rect = parent.getBoundingClientRect();
-      const style = getComputedStyle(parent);
-      const coversViewport =
-        rect.width >= innerWidth * 0.90 &&
-        rect.height >= innerHeight * 0.72;
+    if (!matchedNewPromo) {
+      // The older promotion may be wrapped in a full-screen fixed backdrop.
+      for (let depth = 0, parent = hiddenSurface.parentElement;
+           parent && depth < 6 && parent !== document.body && parent !== document.documentElement;
+           depth++, parent = parent.parentElement) {
+        const text = normalizedText(parent).toLowerCase();
+        if (!text.includes("stay on web") && !text.includes("open the app")) continue;
 
-      if (style.position === "fixed" && coversViewport) {
-        blocker = parent;
-        blocker.dataset.cgIos16Hidden = "1";
-        blocker.dataset.cgIos16AppPromo = "1";
-        blocker.classList.add("cg-ios16-hide");
-        break;
+        const rect = parent.getBoundingClientRect();
+        const style = getComputedStyle(parent);
+        const coversViewport =
+          rect.width >= innerWidth * 0.90 &&
+          rect.height >= innerHeight * 0.72;
+
+        if (style.position === "fixed" && coversViewport) {
+          blocker = parent;
+          blocker.dataset.cgIos16Hidden = "1";
+          blocker.dataset.cgIos16AppPromo = "1";
+          blocker.classList.add("cg-ios16-hide");
+          break;
+        }
       }
     }
 
-    // Acknowledge the web choice only after the UI is hidden, so ChatGPT can
-    // persist/dismiss its own promotion state without any visible transition.
-    if (!stayOnWebButton || !stayOnWebButton.isConnected) {
-      stayOnWebButton = Array.from(
+    if (matchedNewPromo) {
+      // Persist ChatGPT's own dismissal state after the card has already been
+      // hidden. Never click the "Open the app" CTA.
+      closeButton = Array.from(
         blocker.querySelectorAll("button, [role='button']")
-      ).find((element) => normalizedText(element).toLowerCase() === "stay on web") || null;
-    }
+      ).find((element) => {
+        const text = normalizedText(element).toLowerCase();
+        const aria = (element.getAttribute("aria-label") || "").trim().toLowerCase();
+        const title = (element.getAttribute("title") || "").trim().toLowerCase();
+        return (
+          aria === "close" ||
+          aria === "dismiss" ||
+          title === "close" ||
+          title === "dismiss" ||
+          text === "×" ||
+          text === "✕"
+        );
+      }) || null;
 
-    if (stayOnWebButton) {
-      try {
-        stayOnWebButton.click();
-      } catch (_) {
-        stayOnWebButton.dispatchEvent(new MouseEvent("click", {
-          bubbles: true,
-          cancelable: true,
-          view: window
-        }));
+      if (closeButton && closeButton.isConnected) {
+        try {
+          closeButton.click();
+        } catch (_) {
+          closeButton.dispatchEvent(new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          }));
+        }
+      }
+    } else {
+      // Preserve the older promotion's normal "Stay on web" acknowledgement.
+      if (!stayOnWebButton || !stayOnWebButton.isConnected) {
+        stayOnWebButton = Array.from(
+          blocker.querySelectorAll("button, [role='button']")
+        ).find((element) => normalizedText(element).toLowerCase() === "stay on web") || null;
+      }
+
+      if (stayOnWebButton) {
+        try {
+          stayOnWebButton.click();
+        } catch (_) {
+          stayOnWebButton.dispatchEvent(new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          }));
+        }
       }
     }
 
