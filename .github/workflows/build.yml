@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-14_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-15_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
@@ -62,8 +62,6 @@ jobs:
           ! grep -Fq 'ChatGPTBottomNavigation' src/ChatGPTShell.m
           ! grep -Fq 'ChatGPTBackButton' src/ChatGPTShell.m
           ! grep -Fq 'ChatGPTForwardButton' src/ChatGPTShell.m
-          grep -Fq 'CGChromeSafeAreaInsets' src/ChatGPTShell.m
-          grep -Fq 'CGZeroBottomToolbarFrame' src/ChatGPTShell.m
           grep -Fq 'CGBottomToolbarBounds' src/ChatGPTShell.m
           grep -Fq 'scrollToHideToolbarEnabled' src/ChatGPTShell.m
           grep -Fq 'CGToolbarRelayoutKey' src/ChatGPTShell.m
@@ -72,7 +70,9 @@ jobs:
           grep -Fq 'chatgpt is ai and can make mistakes' web/chatgpt-app-shell.js
           grep -Fq 'chats may be reviewed and used to improve our ai models' web/chatgpt-app-shell.js
           grep -Fq 'cg-ios16-composer' web/chatgpt-app-shell.js
-          grep -Fq '"  bottom: 0 !important;"' web/chatgpt-app-shell.js
+          grep -Fq 'safe-area-inset-bottom' web/chatgpt-app-shell.js
+          ! grep -Fq 'CGChromeSafeAreaInsets' src/ChatGPTShell.m
+          ! grep -Fq 'CGZeroBottomToolbarFrame' src/ChatGPTShell.m
           grep -Fq 'data-cg-ios16-preparing' web/chatgpt-app-shell.js
           grep -Fq '"run_at": "document_start"' scripts/package.sh
           find build/work/unpacked/Payload/ChatGPT.app -path '*/extensions/readerview/chatgpt-app-shell.js' -type f | grep -q .
@@ -100,7 +100,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-14. Fixes the remaining active-chat bottom gap at the actual Gecko viewport layer: disables Reynard dynamic-toolbar resizing for this dedicated app, forces the hidden BottomToolbar bounds/height to zero even after Auto Layout, and triggers one post-hook relayout so ToolbarController recalculates Gecko content offsets as zero. Keeps the working microphone flow, document-start no-flash cleanup, full-screen layout and swipe-right Back behavior unchanged. Rootless Dopamine DEB plus test IPA."
+          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-15. Cleans up the bottom-gap work: keeps only the viewport fix that actually worked (dynamic toolbar disabled, hidden BottomToolbar bounds report zero height, one relayout), removes the earlier negative-safe-area and forced-frame workarounds, and restores only the normal iOS safe-area spacing beneath the ChatGPT composer so it is not too low. Microphone, no-flash startup cleanup, full-screen layout and swipe-right Back are unchanged. Rootless Dopamine DEB plus test IPA."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
