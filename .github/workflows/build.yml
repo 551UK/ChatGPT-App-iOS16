@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-12_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-13_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
@@ -69,7 +69,7 @@ jobs:
           grep -Fq 'chatgpt is ai and can make mistakes' web/chatgpt-app-shell.js
           grep -Fq 'chats may be reviewed and used to improve our ai models' web/chatgpt-app-shell.js
           grep -Fq 'cg-ios16-composer' web/chatgpt-app-shell.js
-          grep -Fq 'safe-area-inset-bottom' web/chatgpt-app-shell.js
+          grep -Fq '"  bottom: 0 !important;"' web/chatgpt-app-shell.js
           grep -Fq 'data-cg-ios16-preparing' web/chatgpt-app-shell.js
           grep -Fq '"run_at": "document_start"' scripts/package.sh
           find build/work/unpacked/Payload/ChatGPT.app -path '*/extensions/readerview/chatgpt-app-shell.js' -type f | grep -q .
@@ -97,7 +97,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-12. Keeps the full-screen swipe-back-only interface and working microphone behavior. The ChatGPT cleanup extension now runs at document_start, hides the document before first paint, removes the unwanted footer/disclaimer and 'What can you do?' suggestion, positions the composer, then reveals the cleaned page. This prevents those web-only elements visibly flashing on startup. A 1.4-second failsafe always reveals the page if ChatGPT markup changes. Rootless Dopamine DEB plus test IPA."
+          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-13. Keeps the full-screen swipe-back-only interface, working microphone permissions, and document-start cleanup with no startup flash. Fixes the remaining active-chat bottom gap by docking the Ask ChatGPT composer to bottom: 0 in the already full-screen Gecko viewport, removing the duplicate web safe-area offset. No other behavior changed. Rootless Dopamine DEB plus test IPA."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
