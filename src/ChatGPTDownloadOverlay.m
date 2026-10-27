@@ -9,7 +9,6 @@ static NSString * const CGChatGPTBundleID = @"com.551uk.chatgptios16";
 
 typedef NS_ENUM(NSInteger, CGDownloadPillMode) {
     CGDownloadPillModeHidden = 0,
-    CGDownloadPillModeCompact,
     CGDownloadPillModeDownloading,
     CGDownloadPillModeCompleted,
 };
@@ -278,7 +277,6 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
 - (void)attachToHostView:(UIView *)host;
 - (void)showDownloadingProgress:(CGFloat)progress fileName:(NSString *)fileName;
 - (void)showCompletedFileName:(NSString *)fileName;
-- (void)showCompact;
 - (void)hidePill;
 @end
 
@@ -413,40 +411,23 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
     if (!self.superview) return;
     self.mode = mode;
 
-    BOOL compact = mode == CGDownloadPillModeCompact;
     BOOL hidden = mode == CGDownloadPillModeHidden;
 
-    if (compact) {
-        self.centerXConstraint.active = NO;
-        self.trailingConstraint.active = YES;
-        self.iconLeadingConstraint.active = NO;
-        self.iconCenterConstraint.active = YES;
-        self.widthConstraint.constant = 46.0;
-        self.heightConstraint.constant = 46.0;
-        self.layer.cornerRadius = 23.0;
-        self.iconBackground.backgroundColor = UIColor.clearColor;
-        self.iconBackground.layer.cornerRadius = 0.0;
-        self.titleLabel.hidden = YES;
-        self.fileLabel.hidden = YES;
-        self.progressView.hidden = YES;
-        self.actionButton.hidden = YES;
-        self.iconView.image = [UIImage systemImageNamed:@"arrow.down.circle.fill"];
-    } else {
-        self.trailingConstraint.active = NO;
-        self.centerXConstraint.active = YES;
-        self.iconCenterConstraint.active = NO;
-        self.iconLeadingConstraint.active = YES;
-        CGFloat targetWidth = MIN(300.0, MAX(250.0, CGRectGetWidth(self.superview.bounds) - 42.0));
-        self.widthConstraint.constant = targetWidth;
-        self.heightConstraint.constant = 72.0;
-        self.layer.cornerRadius = 28.0;
-        self.iconBackground.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.12];
-        self.iconBackground.layer.cornerRadius = 20.0;
-        self.titleLabel.hidden = NO;
-        self.fileLabel.hidden = NO;
-        self.progressView.hidden = NO;
-        self.actionButton.hidden = NO;
-    }
+    self.trailingConstraint.active = NO;
+    self.centerXConstraint.active = YES;
+    self.iconCenterConstraint.active = NO;
+    self.iconLeadingConstraint.active = YES;
+
+    CGFloat targetWidth = MIN(300.0, MAX(250.0, CGRectGetWidth(self.superview.bounds) - 42.0));
+    self.widthConstraint.constant = targetWidth;
+    self.heightConstraint.constant = 72.0;
+    self.layer.cornerRadius = 28.0;
+    self.iconBackground.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.12];
+    self.iconBackground.layer.cornerRadius = 20.0;
+    self.titleLabel.hidden = NO;
+    self.fileLabel.hidden = NO;
+    self.progressView.hidden = NO;
+    self.actionButton.hidden = NO;
 
     void (^changes)(void) = ^{
         [self.superview layoutIfNeeded];
@@ -492,11 +473,6 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
     [self.actionButton setImage:[UIImage systemImageNamed:@"square.and.arrow.up" withConfiguration:config] forState:UIControlStateNormal];
     self.accessibilityLabel = [NSString stringWithFormat:@"Downloaded, %@", self.fileLabel.text];
     [self applyMode:CGDownloadPillModeCompleted animated:YES];
-}
-
-- (void)showCompact {
-    self.accessibilityLabel = @"Downloads";
-    [self applyMode:CGDownloadPillModeCompact animated:YES];
 }
 
 - (void)hidePill {
@@ -644,22 +620,15 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4.5 * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
                 if (generation != self.completionGeneration) return;
-                if (CGHasStoredDownloads()) [self.pill showCompact];
-                else [self.pill hidePill];
+                [self.pill hidePill];
             });
-        } else if (CGHasStoredDownloads()) {
-            [self.pill showCompact];
         } else {
             [self.pill hidePill];
         }
         return;
     }
 
-    if (CGHasStoredDownloads()) {
-        [self.pill showCompact];
-    } else {
-        [self.pill hidePill];
-    }
+    [self.pill hidePill];
 }
 
 - (void)presentShareForURL:(NSURL *)url attempt:(NSInteger)attempt {
