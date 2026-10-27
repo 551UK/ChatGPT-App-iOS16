@@ -457,7 +457,7 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
 
     UIImageSymbolConfiguration *config =
         [UIImageSymbolConfiguration configurationWithPointSize:15.0 weight:UIImageSymbolWeightSemibold];
-    [self.actionButton setImage:[UIImage systemImageNamed:@"folder.fill" withConfiguration:config] forState:UIControlStateNormal];
+    [self.actionButton setImage:[UIImage systemImageNamed:@"xmark" withConfiguration:config] forState:UIControlStateNormal];
     self.accessibilityLabel = [NSString stringWithFormat:@"%@, %@", self.titleLabel.text, self.fileLabel.text];
     [self applyMode:CGDownloadPillModeDownloading animated:YES];
 }
@@ -492,6 +492,7 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
 @property(nonatomic,copy) NSString *activeFileName;
 @property(nonatomic,strong) NSURL *lastCompletedURL;
 @property(nonatomic,assign) NSUInteger completionGeneration;
+@property(nonatomic,assign) BOOL dismissedActivePill;
 @end
 
 @implementation CGDownloadOverlayController
@@ -551,6 +552,7 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
 - (void)downloadDidStart:(NSNotification *)notification {
     (void)notification;
     self.wasActive = YES;
+    self.dismissedActivePill = NO;
     self.activeFileName = CGActiveDownloadFileName();
     [self ensurePill];
     [self.pill showDownloadingProgress:0.0 fileName:self.activeFileName];
@@ -593,12 +595,15 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
         self.wasActive = YES;
         if (manifestActiveName.length) self.activeFileName = manifestActiveName;
         CGFloat progress = visual.found ? visual.progress : self.pill.progressView.progress;
-        [self.pill showDownloadingProgress:progress fileName:self.activeFileName];
+        if (!self.dismissedActivePill) {
+            [self.pill showDownloadingProgress:progress fileName:self.activeFileName];
+        }
         return;
     }
 
     if (self.wasActive) {
         self.wasActive = NO;
+        self.dismissedActivePill = NO;
         NSURL *completedURL = CGCompletedDownloadURL(self.activeFileName);
         NSString *completedName = completedURL.lastPathComponent ?: self.activeFileName;
 
@@ -683,14 +688,31 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
         [self presentShareForURL:self.lastCompletedURL attempt:0];
         return;
     }
-    [self openDownloadsManager];
+
+    // While downloading the pill is informational and stays on the current
+    // ChatGPT page. Only the compact post-download button opens the manager.
+    if (self.pill.mode == CGDownloadPillModeCompact) {
+        [self openDownloadsManager];
+    }
 }
 
 - (void)handleActionTap:(id)sender {
     (void)sender;
     if (self.pill.mode == CGDownloadPillModeCompleted && self.lastCompletedURL) {
         [self presentShareForURL:self.lastCompletedURL attempt:0];
-    } else {
+        return;
+    }
+
+    if (self.pill.mode == CGDownloadPillModeDownloading) {
+        // Match the reference UI's close affordance without pretending to
+        // cancel the real transfer. The download continues in Reynard and the
+        // completed file will still be handed off normally.
+        self.dismissedActivePill = YES;
+        [self.pill hidePill];
+        return;
+    }
+
+    if (self.pill.mode == CGDownloadPillModeCompact) {
         [self openDownloadsManager];
     }
 }
