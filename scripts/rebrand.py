@@ -32,6 +32,20 @@ def main():
         d["NSSpeechRecognitionUsageDescription"] = "Use speech input in ChatGPT."
         # Avoid hijacking the original browser's reynard:// deep links.
         d.pop("CFBundleURLTypes", None)
+
+        # Reynard declares background audio because it is a general-purpose
+        # browser/media app. In the dedicated ChatGPT wrapper this causes iOS
+        # to keep treating the app as a background media source and can produce
+        # a blank lock-screen player after an ordinary text chat has loaded.
+        # Keep Reynard's non-audio background capabilities, but remove only
+        # the audio mode. Do not carry forward the failed v49 Now Playing hook.
+        background_modes = d.get("UIBackgroundModes")
+        if isinstance(background_modes, list):
+            background_modes = [mode for mode in background_modes if mode != "audio"]
+            if background_modes:
+                d["UIBackgroundModes"] = background_modes
+            else:
+                d.pop("UIBackgroundModes", None)
         icons = d.setdefault("CFBundleIcons", {}).setdefault("CFBundlePrimaryIcon", {})
         icons.pop("CFBundleIconName", None)
         icons["CFBundleIconFiles"] = ["AppIcon60x60", "AppIcon76x76"]
