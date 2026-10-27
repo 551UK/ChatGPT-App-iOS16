@@ -47,11 +47,12 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-26_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-27_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/ChatGPTPrefs'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/Info.plist'
+          dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/Root.plist'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/icon.png'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceLoader/Preferences/ChatGPT.plist'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceLoader/Preferences/ChatGPT.png'
@@ -116,11 +117,13 @@ jobs:
           ! grep -Fq 'cookies.sqlite' src/ChatGPTDataMaintenance.m
           ! grep -Fq 'SitePermissions' src/ChatGPTDataMaintenance.m
           ! grep -Fq 'storage/default' src/ChatGPTDataMaintenance.m
-          grep -Fq 'Clear Local Browsing History' prefs/ChatGPTPrefs.m
-          grep -Fq 'Clear Cache' prefs/ChatGPTPrefs.m
-          grep -Fq 'Don.t Save Local Browsing History' prefs/ChatGPTPrefs.m || grep -Fq "Don't Save Local Browsing History" prefs/ChatGPTPrefs.m
-          grep -Fq 'View on GitHub' prefs/ChatGPTPrefs.m
-          grep -Fq 'GOOD TO KNOW' prefs/ChatGPTPrefs.m
+          grep -Fq 'loadSpecifiersFromPlistName:@"Root"' prefs/ChatGPTPrefs.m
+          grep -Fq '<string>Clear Local Browsing History</string>' prefs/Resources/Root.plist
+          grep -Fq '<string>Clear Cache</string>' prefs/Resources/Root.plist
+          grep -Fq "<string>Don't Save Local Browsing History</string>" prefs/Resources/Root.plist
+          grep -Fq '<string>View on GitHub</string>' prefs/Resources/Root.plist
+          grep -Fq '<string>GOOD TO KNOW</string>' prefs/Resources/Root.plist
+          grep -Fq '<string>CGPGuideCell</string>' prefs/Resources/Root.plist
           python3 - <<'PY'
           from pathlib import Path
           from PIL import Image
@@ -145,6 +148,17 @@ jobs:
               assert info["NSPrincipalClass"] == "CGPRootListController"
               assert info["MinimumOSVersion"] == "16.0"
 
+              root_plist = plistlib.loads((prefs / "Root.plist").read_bytes())
+              items = root_plist["items"]
+              labels = [item.get("label") for item in items if isinstance(item, dict)]
+              assert "BROWSING DATA" in labels
+              assert "Clear Local Browsing History" in labels
+              assert "Clear Cache" in labels
+              assert "GOOD TO KNOW" in labels
+              assert any(item.get("cellClass") == "CGPGuideCell" for item in items if isinstance(item, dict))
+              assert any(item.get("action") == "clearHistory:" for item in items if isinstance(item, dict))
+              assert any(item.get("action") == "clearCache:" for item in items if isinstance(item, dict))
+
               entry = plistlib.loads(entry_path.read_bytes())["entry"]
               expected_icon = "/var/jb/Library/PreferenceLoader/Preferences/ChatGPT.png"
               assert entry["bundle"] == "ChatGPTPrefs"
@@ -156,9 +170,10 @@ jobs:
               exe = prefs / "ChatGPTPrefs"
               linked = subprocess.check_output(["otool", "-L", str(exe)], text=True)
               assert "/System/Library/PrivateFrameworks/Preferences.framework/Preferences" in linked
+              assert "/System/Library/Frameworks/QuartzCore.framework/QuartzCore" in linked
               subprocess.run(["xcrun", "lipo", str(exe), "-verify_arch", "arm64", "arm64e"], check=True)
 
-          print("PASS: professional preference bundle, arm64/arm64e slices, black icon and rootless metadata verified")
+          print("PASS: Root.plist Settings structure, dual architectures, black icon and framework linkage verified")
           PY
           # The actual Settings loading and icon rendering must still be device-tested.
       - uses: actions/upload-artifact@v4
