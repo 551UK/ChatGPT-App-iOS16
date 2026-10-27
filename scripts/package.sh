@@ -44,6 +44,42 @@ python3 "$ROOT/scripts/inject.py" "$APP/$MAIN_EXE"
 python3 "$ROOT/scripts/rebrand.py" "$APP"
 python3 "$ROOT/scripts/icon.py" "$APP"
 
+# Extend Reynard's already-loaded built-in ReaderView WebExtension with a
+# ChatGPT-only content script. This gives the dedicated app a presentation
+# layer inside Gecko without modifying ChatGPT's networking or message logic.
+READERVIEW_MANIFEST="$(find "$APP" -path '*/extensions/readerview/manifest.json' -type f | head -1)"
+[ -n "$READERVIEW_MANIFEST" ] && [ -f "$READERVIEW_MANIFEST" ] || {
+    echo "ERROR: built-in ReaderView extension manifest not found" >&2
+    exit 1
+}
+python3 - "$READERVIEW_MANIFEST" "$ROOT/web/chatgpt-app-shell.js" <<'PY'
+import json, pathlib, shutil, sys
+manifest_path = pathlib.Path(sys.argv[1])
+script_source = pathlib.Path(sys.argv[2])
+extension_dir = manifest_path.parent
+script_name = "chatgpt-app-shell.js"
+shutil.copy2(script_source, extension_dir / script_name)
+
+manifest = json.loads(manifest_path.read_text())
+scripts = manifest.setdefault("content_scripts", [])
+scripts = [entry for entry in scripts if script_name not in entry.get("js", [])]
+scripts.append({
+    "matches": [
+        "https://chatgpt.com/*",
+        "https://www.chatgpt.com/*",
+        "https://chat.openai.com/*"
+    ],
+    "js": [script_name],
+    "run_at": "document_idle"
+})
+manifest["content_scripts"] = scripts
+# Bump the built-in extension version so Gecko refreshes the installed copy
+# for users upgrading from the previous ChatGPT package.
+manifest["version"] = "1.0.8"
+manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+print("Injected ChatGPT app presentation content script into", manifest_path)
+PY
+
 # Preserve the upstream unsandboxed/JIT entitlements. If ldid cannot extract
 # a binary's signature (some TIPA builds have none), use the pinned upstream
 # entitlement manifests rather than accidentally signing with no entitlements.
@@ -121,7 +157,7 @@ ditto "$NEWAPP" "$PKG/var/jb/Applications/ChatGPT.app"
 cat > "$PKG/DEBIAN/control" <<'CONTROL'
 Package: com.551uk.chatgptgecko
 Name: ChatGPT
-Version: 0.19.0-7
+Version: 0.19.0-8
 Architecture: iphoneos-arm64
 Maintainer: 551UK
 Author: 551UK
@@ -144,7 +180,7 @@ if command -v uicache >/dev/null 2>&1; then uicache -a || true; fi
 exit 0
 POSTRM
 chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/postrm"
-DEB="$DIST/com.551uk.chatgptgecko_0.19.0-7_iphoneos-arm64.deb"
+DEB="$DIST/com.551uk.chatgptgecko_0.19.0-8_iphoneos-arm64.deb"
 dpkg-deb --root-owner-group -Zxz --build "$PKG" "$DEB"
 dpkg-deb --field "$DEB" Package Architecture
 ls -lh "$DEB"
