@@ -17,6 +17,7 @@ static IMP CGOriginalControllerLayout = NULL;
 static IMP CGOriginalControllerAppear = NULL;
 static IMP CGOriginalUIViewSetHidden = NULL;
 static IMP CGOriginalUIViewBounds = NULL;
+static IMP CGOriginalUIViewSetTransform = NULL;
 static BOOL CGHooksInstalled = NO;
 static const void *CGConstraintsAdjustedKey = &CGConstraintsAdjustedKey;
 static const void *CGLayoutPendingKey = &CGLayoutPendingKey;
@@ -426,7 +427,52 @@ static CGRect CGBottomToolbarBounds(UIView *self, SEL cmd) {
     return bounds;
 }
 
+static void CGContentViewSetTransform(UIView *self, SEL cmd, CGAffineTransform requested) {
+    // Reynard intentionally leaves 12pt of clearance above the keyboard when
+    // relocating a focused page input. In this dedicated ChatGPT shell that
+    // clearance becomes the remaining visible strip between ChatGPT's composer
+    // and the iOS keyboard. Reduce only that pure vertical relocation by the
+    // same 12pt. This modifies the target transform before UIKit animates it,
+    // so there is no second-stage visual correction or post-load jump.
+    BOOL pureVerticalTranslation =
+      fabs(requested.a - 1.0) < 0.001 &&
+      fabs(requested.b) < 0.001 &&
+      fabs(requested.c) < 0.001 &&
+      fabs(requested.d - 1.0) < 0.001 &&
+      fabs(requested.tx) < 0.5 &&
+      requested.ty < -0.5;
+
+    if (CGIsOurApp() && pureVerticalTranslation) {
+        requested.ty = MIN(0.0, requested.ty + 12.0);
+    }
+
+    if (CGOriginalUIViewSetTransform) {
+        ((void (*)(id,SEL,CGAffineTransform))CGOriginalUIViewSetTransform)(self, cmd, requested);
+    }
+}
+
+static void CGInstallFocusedInputClearanceAdjustment(void) {
+    static BOOL installed = NO;
+    if (installed || !CGIsOurApp()) return;
+
+    Class contentView = NSClassFromString(@"Reynard.ContentView");
+    if (!contentView) contentView = NSClassFromString(@"_TtC7Reynard11ContentView");
+    if (!contentView) return;
+
+    Method transformMethod = class_getInstanceMethod(UIView.class, @selector(setTransform:));
+    if (!transformMethod) return;
+
+    CGOriginalUIViewSetTransform = method_getImplementation(transformMethod);
+    class_replaceMethod(contentView,
+                        @selector(setTransform:),
+                        (IMP)CGContentViewSetTransform,
+                        method_getTypeEncoding(transformMethod));
+    installed = YES;
+    NSLog(@"[ChatGPTGecko] Focused-input keyboard clearance reduced by 12pt");
+}
+
 static void CGInstallChromeSuppression(void) {
+    CGInstallFocusedInputClearanceAdjustment();
     static BOOL installed = NO;
     if (installed) return;
 
