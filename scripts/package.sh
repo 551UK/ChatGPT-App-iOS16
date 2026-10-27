@@ -7,15 +7,15 @@ WORK="$ROOT/build/work"
 DIST="$ROOT/dist"
 mkdir -p "$WORK" "$DIST"
 
-# The TrollStore flavor of the same Gecko 158.0.1 release supports iOS 16.
-# The separately uploaded Jailbroken IPA targets older jailbreak install paths.
-URL="https://github.com/minh-ton/reynard-browser/releases/download/${VERSION}/Reynard-TrollStore.tipa"
-curl -fL --retry 4 --retry-delay 2 "$URL" -o "$WORK/Reynard-TrollStore.tipa"
-unzip -q "$WORK/Reynard-TrollStore.tipa" -d "$WORK/unpacked"
+# Match the working standalone Reynard installation on Dopamine: use the
+# upstream jailbroken flavor rather than wrapping the TrollStore flavor in a DEB.
+URL="https://github.com/minh-ton/reynard-browser/releases/download/${VERSION}/Reynard-Jailbroken.ipa"
+curl -fL --retry 4 --retry-delay 2 "$URL" -o "$WORK/Reynard-Jailbroken.ipa"
+unzip -q "$WORK/Reynard-Jailbroken.ipa" -d "$WORK/unpacked"
 APP="$(find "$WORK/unpacked/Payload" -maxdepth 1 -name '*.app' -type d | head -1)"
 [ -n "$APP" ] && [ -d "$APP" ] || { echo 'Missing Reynard app'; exit 1; }
 
-# Retain original JIT and memory permissions from TrollStore's entitlement set.
+# Retain the jailbroken build's original JIT and memory permissions.
 mkdir -p "$WORK/entitlements"
 save_entitlements() {
     local exe="$1" label="$2"
@@ -68,10 +68,10 @@ for f in base.glob("*.plist"):
     if not isinstance(obj,dict): continue
     for k in ("application-identifier","com.apple.application-identifier"):
         if k in obj and isinstance(obj[k],str):
-            obj[k]=obj[k].replace("com.minh-ton.Reynard", "com.551uk.chatgptgecko")
+            obj[k]=obj[k].replace("com.minh-ton.Reynard", "com.551uk.chatgptios16")
     for k in ("com.apple.security.application-groups",):
         if k in obj and isinstance(obj[k],list):
-            obj[k]=[s.replace("com.minh-ton.Reynard", "com.551uk.chatgptgecko") if isinstance(s,str) else s for s in obj[k]]
+            obj[k]=[s.replace("com.minh-ton.Reynard", "com.551uk.chatgptios16") if isinstance(s,str) else s for s in obj[k]]
     f.write_bytes(plistlib.dumps(obj))
 PY
 
@@ -103,7 +103,7 @@ grep -q 'extended-virtual-addressing' "$WORK/entitlements/helper-verified.plist"
 }
 
 # Package as a real standalone ChatGPT application (not a tweak or web clip).
-# TrollStore resigns and registers the app on installation.
+# The IPA remains available for testing, but the rootless DEB is the primary target.
 NEWAPP="$WORK/unpacked/Payload/ChatGPT.app"
 if [ "$APP" != "$NEWAPP" ]; then mv "$APP" "$NEWAPP"; fi
 OUTPUT="$DIST/ChatGPT-Gecko-iOS16.ipa"
@@ -117,11 +117,11 @@ ls -lh "$OUTPUT"
 # the display name is ChatGPT. No mobile substrate injection is required.
 PKG="$ROOT/build/deb-root"
 mkdir -p "$PKG/var/jb/Applications" "$PKG/DEBIAN"
-ditto "$NEWAPP" "$PKG/var/jb/Applications/ChatGPTGecko.app"
+ditto "$NEWAPP" "$PKG/var/jb/Applications/ChatGPT.app"
 cat > "$PKG/DEBIAN/control" <<'CONTROL'
 Package: com.551uk.chatgptgecko
-Name: ChatGPT Gecko
-Version: 0.19.0-4
+Name: ChatGPT
+Version: 0.19.0-5
 Architecture: iphoneos-arm64
 Maintainer: 551UK
 Author: 551UK
@@ -144,7 +144,7 @@ if command -v uicache >/dev/null 2>&1; then uicache -a || true; fi
 exit 0
 POSTRM
 chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/postrm"
-DEB="$DIST/com.551uk.chatgptgecko_0.19.0-4_iphoneos-arm64.deb"
+DEB="$DIST/com.551uk.chatgptgecko_0.19.0-5_iphoneos-arm64.deb"
 dpkg-deb --root-owner-group -Zxz --build "$PKG" "$DEB"
 dpkg-deb --field "$DEB" Package Architecture
 ls -lh "$DEB"
