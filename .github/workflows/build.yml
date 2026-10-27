@@ -105,6 +105,7 @@ jobs:
           ! grep -Fq 'moveComposerDown' web/chatgpt-app-shell.js
           ! grep -Fq 'keyboardAdjustedElement' web/chatgpt-app-shell.js
           ! grep -Fq 'removeKeyboardGap' web/chatgpt-app-shell.js
+          node --check web/chatgpt-app-shell.js
           grep -Fq 'dismissAppPromotion' web/chatgpt-app-shell.js
           grep -Fq 'stay on web' web/chatgpt-app-shell.js
           grep -Fq 'open the app' web/chatgpt-app-shell.js
