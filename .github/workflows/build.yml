@@ -2,7 +2,7 @@ name: Build ChatGPT App (iOS 16)
 
 on:
   push:
-    branches: [topbar-controls-130-v47]
+    branches: [topbar-home-no-flash-v48]
   workflow_dispatch:
 
 concurrency:
@@ -49,7 +49,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-47_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-48_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/ChatGPTPrefs'
@@ -210,6 +210,9 @@ jobs:
           grep -Fq 'scale(1.30)' web/chatgpt-app-shell.js
           grep -Fq 'hasHomeSwitcher' web/chatgpt-app-shell.js
           grep -Fq 'Home page: keep ChatGPT' web/chatgpt-app-shell.js
+          grep -Fq 'const isHomeRoute' web/chatgpt-app-shell.js
+          grep -Fq 'window.location.pathname === "/"' web/chatgpt-app-shell.js
+          grep -Fq 'if (isHomeRoute || hasHomeSwitcher)' web/chatgpt-app-shell.js
           grep -Fq 'removeProperty("--cg-ios16-topbar-bg")' web/chatgpt-app-shell.js
           grep -Fq 'eligibleRows' web/chatgpt-app-shell.js
           grep -Fq 'Math.ceil(rowBottom - bestRect.top)' web/chatgpt-app-shell.js
@@ -217,6 +220,6 @@ jobs:
           # The actual Settings loading and icon rendering must still be device-tested.
       - uses: actions/upload-artifact@v4
         with:
-          name: ChatGPT-0.19.0-47-HOME-WHITE-TOPBAR
-          path: dist/com.551uk.chatgptgecko_0.19.0-47_iphoneos-arm64.deb
+          name: ChatGPT-0.19.0-48-HOME-NO-FLASH
+          path: dist/com.551uk.chatgptgecko_0.19.0-48_iphoneos-arm64.deb
           if-no-files-found: error
