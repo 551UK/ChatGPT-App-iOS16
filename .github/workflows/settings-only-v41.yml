@@ -1,0 +1,160 @@
+name: Build ChatGPT 0.19.0-41 Settings-Only Appearance
+
+on:
+  push:
+    branches: [appearance-settings-only-v41]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Theos for Linux iOS builds
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev binutils file
+
+      - name: Download verified 0.19.0-35 baseline
+        uses: actions/download-artifact@v4
+        with:
+          name: ChatGPT-0.19.0-35-TOPBAR-FULLWIDTH
+          path: base-artifact
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 40523076102
+
+      - name: Build Settings bundle only
+        run: |
+          set -euo pipefail
+
+          cat > prefs/control <<'EOF'
+          Package: com.551uk.chatgptprefs.build
+          Name: ChatGPTPrefs Build
+          Version: 1.0
+          Architecture: iphoneos-arm64
+          Maintainer: 551UK
+          Author: 551UK
+          Section: Tweaks
+          Description: Temporary build package for ChatGPT Preferences.
+          EOF
+
+          make -C prefs clean package FINALPACKAGE=1
+
+          PREF_DEB="$(find prefs/packages -type f -name '*.deb' | head -1)"
+          test -n "$PREF_DEB"
+          test -s "$PREF_DEB"
+
+          mkdir -p build/prefs
+          dpkg-deb -R "$PREF_DEB" build/prefs
+
+          PREF_BUNDLE="$(find build/prefs -type d -name 'ChatGPTPrefs.bundle' | head -1)"
+          test -n "$PREF_BUNDLE"
+          test -s "$PREF_BUNDLE/ChatGPTPrefs"
+
+          strings "$PREF_BUNDLE/ChatGPTPrefs" | grep -F 'LSApplicationProxy'
+          strings "$PREF_BUNDLE/ChatGPTPrefs" | grep -F 'dataContainerURL'
+          strings "$PREF_BUNDLE/ChatGPTPrefs" | grep -F 'LSApplicationWorkspace'
+          strings "$PREF_BUNDLE/ChatGPTPrefs" | grep -F 'openApplicationWithBundleID:'
+          strings "$PREF_BUNDLE/ChatGPTPrefs" | grep -F 'FBSSystemService'
+          strings "$PREF_BUNDLE/ChatGPTPrefs" | grep -F 'terminateApplication:forReason:andReport:withDescription:'
+          strings "$PREF_BUNDLE/ChatGPTPrefs" | grep -F 'https://chatgpt.com/settings/appearance'
+          strings "$PREF_BUNDLE/ChatGPTPrefs" | grep -F 'AppData/TabManagement'
+          ! strings "$PREF_BUNDLE/ChatGPTPrefs" | grep -F 'operationToOpenResource:usingApplication:'
+          ! strings "$PREF_BUNDLE/ChatGPTPrefs" | grep -F 'chat551'
+
+      - name: Replace only Settings bundle in 0.19.0-35
+        run: |
+          set -euo pipefail
+
+          BASE_DEB="$(find base-artifact -type f -name '*.deb' | head -1)"
+          test -n "$BASE_DEB"
+          test -s "$BASE_DEB"
+
+          mkdir -p build/package
+          dpkg-deb -R "$BASE_DEB" build/package
+
+          APP="build/package/var/jb/Applications/ChatGPT.app"
+          test -d "$APP"
+
+          find "$APP" -type f -print0 | sort -z | xargs -0 sha256sum > build/app-before.sha256
+
+          TARGET_PREFS="build/package/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle"
+          PREF_BUNDLE="$(find build/prefs -type d -name 'ChatGPTPrefs.bundle' | head -1)"
+          rm -rf "$TARGET_PREFS"
+          cp -a "$PREF_BUNDLE" "$TARGET_PREFS"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path("build/package")
+          control_path = root / "DEBIAN/control"
+          control = control_path.read_text()
+          control = re.sub(r"^Version: .*$", "Version: 0.19.0-41", control, flags=re.M)
+          control_path.write_text(control)
+          PY
+
+          find "$APP" -type f -print0 | sort -z | xargs -0 sha256sum > build/app-after.sha256
+          diff -u build/app-before.sha256 build/app-after.sha256
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import plistlib
+
+          root = Path("build/package")
+          app = root / "var/jb/Applications/ChatGPT.app"
+          info = plistlib.loads((app / "Info.plist").read_bytes())
+          assert info["CFBundleIdentifier"] == "com.551uk.chatgptios16"
+          assert "CFBundleURLTypes" not in info, "0.19.0-35 app URL handling must stay untouched"
+
+          prefs = root / "var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle"
+          root_plist = plistlib.loads((prefs / "Root.plist").read_bytes())
+          items = root_plist["items"]
+          assert any(
+              isinstance(item, dict)
+              and item.get("label") == "Open Appearance Settings"
+              and item.get("action") == "openAppearance:"
+              for item in items
+          )
+
+          control = (root / "DEBIAN/control").read_text()
+          assert "Version: 0.19.0-41" in control
+          print("PASS: exact 0.19.0-35 ChatGPT.app preserved; Settings bundle only replaced")
+          PY
+
+          SHELL="$APP/Frameworks/ChatGPTShell.dylib"
+          test -s "$SHELL"
+          strings "$SHELL" | grep -F 'DownloadStore.DidChange'
+          strings "$SHELL" | grep -F 'DownloadStore.DidStartDownload'
+          strings "$SHELL" | grep -F 'Downloading %ld%%'
+          strings "$SHELL" | grep -F 'Downloaded'
+          ! strings "$SHELL" | grep -F 'UIOpenURLContext'
+          ! find "$APP" -name '*AppearanceLink*' -print | grep -q .
+
+          mkdir -p dist
+          dpkg-deb --root-owner-group -b build/package             dist/com.551uk.chatgptgecko_0.19.0-41_iphoneos-arm64.deb
+
+          test -s dist/com.551uk.chatgptgecko_0.19.0-41_iphoneos-arm64.deb
+          dpkg-deb --field dist/com.551uk.chatgptgecko_0.19.0-41_iphoneos-arm64.deb Package | grep -Fx 'com.551uk.chatgptgecko'
+          dpkg-deb --field dist/com.551uk.chatgptgecko_0.19.0-41_iphoneos-arm64.deb Version | grep -Fx '0.19.0-41'
+          dpkg-deb --field dist/com.551uk.chatgptgecko_0.19.0-41_iphoneos-arm64.deb Architecture | grep -Fx 'iphoneos-arm64'
+
+      - name: Upload verified 0.19.0-41 DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-0.19.0-41-SETTINGS-ONLY-APPEARANCE
+          path: dist/com.551uk.chatgptgecko_0.19.0-41_iphoneos-arm64.deb
+          if-no-files-found: error
