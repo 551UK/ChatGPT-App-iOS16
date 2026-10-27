@@ -197,8 +197,7 @@ jobs:
 
           # Remove every existing GitHub release first so only one current
           # RELEASE DEB remains.
-          mapfile -t RELEASE_TAGS < <(gh release list --limit 100 --json tagName --jq '.[].tagName')
-          for TAG in "${RELEASE_TAGS[@]}"; do
+          gh release list --limit 100 --json tagName --jq '.[].tagName' | while IFS= read -r TAG; do
             [ -n "$TAG" ] || continue
             gh release delete "$TAG" --yes || true
           done
