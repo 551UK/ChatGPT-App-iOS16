@@ -1,5 +1,1 @@
-# ChatGPT App for iOS 16
-
-## Install
-
-Download the latest DEB from **RELEASE DEB**.
+I am still working on this, once testing is complete ill put the deb and source code up in MAIN
