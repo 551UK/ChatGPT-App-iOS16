@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Rebrand the pinned Reynard jailbroken app without removing Gecko or its helper."""
 import argparse
-import os
 import plistlib
 from pathlib import Path
 
@@ -33,12 +32,8 @@ def main():
         # Avoid hijacking the original browser's reynard:// deep links.
         d.pop("CFBundleURLTypes", None)
 
-        # Reynard declares background audio because it is a general-purpose
-        # browser/media app. In the dedicated ChatGPT wrapper this causes iOS
-        # to keep treating the app as a background media source and can produce
-        # a blank lock-screen player after an ordinary text chat has loaded.
-        # Keep Reynard's non-audio background capabilities, but remove only
-        # the audio mode. Do not carry forward the failed v49 Now Playing hook.
+        # Keep non-audio background capabilities. The app is not a background
+        # audio player; native Now Playing registration is blocked separately.
         background_modes = d.get("UIBackgroundModes")
         if isinstance(background_modes, list):
             background_modes = [mode for mode in background_modes if mode != "audio"]
