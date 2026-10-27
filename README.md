@@ -11,7 +11,7 @@ Experimental **ChatGPT app** using the complete mobile website at https://chatgp
 
 ## Installation
 
-Download the `com.551uk.chatgptgecko_0.19.0-17_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
+Download the `com.551uk.chatgptgecko_0.19.0-18_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
 
 ## App-style navigation and microphone
 
@@ -38,4 +38,4 @@ This app builds on [Reynard Browser](https://github.com/minh-ton/reynard-browser
 
 ## Native cold-start loader
 
-Cold Gecko launches can spend several seconds initializing the content process/JIT and loading ChatGPT. The app now covers that period with a native system-background loading screen using the ChatGPT app icon, label and spinner. The selected tab is marked as starting before Gecko opens it; the loader polls Reynard's tab store and fades away after Gecko replaces that marker with the real page title. An 8-second fail-safe guarantees the overlay cannot remain stuck if the page fails to update.
+Cold Gecko launches can spend several seconds initializing the content process/JIT and loading ChatGPT. The startup overlay is now intentionally minimal: only the user-supplied ChatGPT logo is centered on a white background and the logo itself spins. There is no text label and no separate activity spinner. The selected tab is marked as starting before Gecko opens it; the loader polls Reynard's tab store and fades away after Gecko replaces that marker with the real page title. An 8-second fail-safe guarantees the overlay cannot remain stuck if the page fails to update.
