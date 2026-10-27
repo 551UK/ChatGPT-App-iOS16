@@ -14,10 +14,12 @@ static IMP CGOriginalControllerLayout = NULL;
 static IMP CGOriginalControllerAppear = NULL;
 static IMP CGOriginalUIViewSetHidden = NULL;
 static IMP CGOriginalUIViewSetFrame = NULL;
+static IMP CGOriginalUIViewBounds = NULL;
 static IMP CGOriginalUIViewSafeAreaInsets = NULL;
 static BOOL CGHooksInstalled = NO;
 static const void *CGConstraintsAdjustedKey = &CGConstraintsAdjustedKey;
 static const void *CGLayoutPendingKey = &CGLayoutPendingKey;
+static const void *CGToolbarRelayoutKey = &CGToolbarRelayoutKey;
 
 static BOOL CGIsOurApp(void) {
     return [[[NSBundle mainBundle] bundleIdentifier] isEqualToString:CGBundleID];
@@ -284,6 +286,18 @@ static void CGZeroBottomToolbarFrame(UIView *self, SEL cmd, CGRect frame) {
     ((void (*)(id,SEL,CGRect))CGOriginalUIViewSetFrame)(self, cmd, frame);
 }
 
+static CGRect CGBottomToolbarBounds(UIView *self, SEL cmd) {
+    CGRect bounds = CGRectZero;
+    if (CGOriginalUIViewBounds) {
+        bounds = ((CGRect (*)(id,SEL))CGOriginalUIViewBounds)(self, cmd);
+    }
+    // BrowserChrome.bottomToolbarTransitionFrame() reads bottomToolbar.bounds
+    // directly. Returning a zero height here guarantees ToolbarController sees
+    // no hidden browser toolbar, even if Auto Layout later restores its frame.
+    bounds.size.height = 0;
+    return bounds;
+}
+
 static void CGInstallChromeSuppression(void) {
     static BOOL installed = NO;
     if (installed) return;
@@ -291,23 +305,32 @@ static void CGInstallChromeSuppression(void) {
     Class bottomToolbar = NSClassFromString(@"Reynard.BottomToolbar");
     Class overview = NSClassFromString(@"Reynard.TabOverview");
     if (!browserChrome || !bottomToolbar || !overview) return;
+
     Method hiddenMethod = class_getInstanceMethod(UIView.class, @selector(setHidden:));
     Method frameMethod = class_getInstanceMethod(UIView.class, @selector(setFrame:));
+    Method boundsMethod = class_getInstanceMethod(UIView.class, @selector(bounds));
     Method insetMethod = class_getInstanceMethod(UIView.class, @selector(safeAreaInsets));
+
     CGOriginalUIViewSetHidden = method_getImplementation(hiddenMethod);
     CGOriginalUIViewSetFrame = method_getImplementation(frameMethod);
+    CGOriginalUIViewBounds = method_getImplementation(boundsMethod);
     CGOriginalUIViewSafeAreaInsets = method_getImplementation(insetMethod);
-    BOOL a = class_addMethod(browserChrome, @selector(setHidden:), (IMP)CGAlwaysHideChrome,
-                             method_getTypeEncoding(hiddenMethod));
-    BOOL b = class_addMethod(overview, @selector(setHidden:), (IMP)CGAlwaysHideChrome,
-                             method_getTypeEncoding(hiddenMethod));
-    BOOL c = class_addMethod(browserChrome, @selector(safeAreaInsets), (IMP)CGChromeSafeAreaInsets,
-                             method_getTypeEncoding(insetMethod));
-    BOOL d = class_addMethod(bottomToolbar, @selector(setFrame:), (IMP)CGZeroBottomToolbarFrame,
-                             method_getTypeEncoding(frameMethod));
-    // If upstream adds one of these overrides later, class_addMethod leaves it
-    // untouched instead of replacing unknown behavior.
-    NSLog(@"[ChatGPTGecko] Chrome hooks hidden=%d tabs=%d insets=%d bottomFrame=%d", a, b, c, d);
+
+    // class_replaceMethod is deliberate here. If a Swift subclass already has
+    // a local implementation, replace only that subclass method; otherwise it
+    // adds an override without touching UIView globally.
+    class_replaceMethod(browserChrome, @selector(setHidden:), (IMP)CGAlwaysHideChrome,
+                        method_getTypeEncoding(hiddenMethod));
+    class_replaceMethod(overview, @selector(setHidden:), (IMP)CGAlwaysHideChrome,
+                        method_getTypeEncoding(hiddenMethod));
+    class_replaceMethod(browserChrome, @selector(safeAreaInsets), (IMP)CGChromeSafeAreaInsets,
+                        method_getTypeEncoding(insetMethod));
+    class_replaceMethod(bottomToolbar, @selector(setFrame:), (IMP)CGZeroBottomToolbarFrame,
+                        method_getTypeEncoding(frameMethod));
+    class_replaceMethod(bottomToolbar, @selector(bounds), (IMP)CGBottomToolbarBounds,
+                        method_getTypeEncoding(boundsMethod));
+
+    NSLog(@"[ChatGPTGecko] Chrome suppression + zero toolbar geometry installed");
     installed = YES;
 }
 
@@ -368,6 +391,21 @@ static void CGApplyAppLayout(UIViewController *controller) {
         overview.userInteractionEnabled = NO;
     }
     [root bringSubviewToFront:content];
+
+    // The first upstream layout can run before our BottomToolbar override is
+    // installed and may cache a non-zero Gecko viewport inset. Force exactly
+    // one additional BrowserViewController layout after the zero-height hooks
+    // are active so ToolbarController recalculates all Gecko offsets as zero.
+    if (![objc_getAssociatedObject(controller, CGToolbarRelayoutKey) boolValue]) {
+        objc_setAssociatedObject(controller, CGToolbarRelayoutKey, @YES,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        __weak UIView *weakRoot = root;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIView *strongRoot = weakRoot;
+            [strongRoot setNeedsLayout];
+            [strongRoot layoutIfNeeded];
+        });
+    }
 }
 
 // Schedule after the upstream override finishes laying out browser chrome.
@@ -405,6 +443,9 @@ static void CGConfigurePreferences(void) {
     [prefs setBool:NO forKey:@"default.HomepageSettings.showsNewUpdates"];
     [prefs setBool:NO forKey:@"default.HomepageSettings.showsFavorites"];
     [prefs setBool:NO forKey:@"default.HomepageSettings.showsFrequentlyVisited"];
+    // This app has no browser toolbar. Disable Reynard's dynamic toolbar mode
+    // so ToolbarController sends zero max/min/content bottom insets to Gecko.
+    [prefs setBool:NO forKey:@"default.AppearanceSettings.scrollToHideToolbarEnabled"];
     // Other sites remain prompt-based; chatgpt.com itself is explicitly
     // pre-allowed in Reynard's SitePermissionStore database.
     [prefs setObject:@"ask_to_allow" forKey:@"default.SitePermissionSettings.defaultMicrophonePermission"];
