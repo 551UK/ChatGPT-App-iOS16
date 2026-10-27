@@ -35,11 +35,13 @@ jobs:
           theos-sdks: https://github.com/theos/sdks
           theos-sdks-branch: master
 
-      - name: Prove app runtime is exact 0.19.0-22
+      - name: Prove native runtime and Settings remain unchanged
         run: |
           set -euo pipefail
-          git diff --exit-code ad1e79623d0b2292c932701d6ab3f9c7b97012c3 HEAD -- src/ChatGPTShell.m web/chatgpt-app-shell.js
-          echo "PASS: ChatGPT runtime is byte-for-byte source-equivalent to saved 0.19.0-22"
+          git fetch origin main --depth=1
+          git diff --exit-code ad1e79623d0b2292c932701d6ab3f9c7b97012c3 HEAD -- src/ChatGPTShell.m
+          git diff --exit-code origin/main HEAD -- src prefs
+          echo "PASS: native ChatGPT shell is exact 0.19.0-22 and Settings/data code matches current main"
 
       - name: Package Gecko-based ChatGPT app
         run: bash scripts/package.sh
