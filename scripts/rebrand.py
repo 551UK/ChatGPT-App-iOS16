@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Rebrand a pinned Reynard TIPA without removing Gecko or its helper extensions."""
+"""Rebrand the pinned Reynard jailbroken app without removing Gecko or its helper."""
 import argparse
 import os
 import plistlib
 from pathlib import Path
 
-APP_ID = "com.551uk.chatgptgecko"
+APP_ID = "com.551uk.chatgptios16"
 NAME = "ChatGPT"
 
 def modify_plist(path, changes):
