@@ -49,7 +49,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-29_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-30_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/ChatGPTPrefs'
@@ -195,6 +195,6 @@ jobs:
           # The actual Settings loading and icon rendering must still be device-tested.
       - uses: actions/upload-artifact@v4
         with:
-          name: ChatGPT-0.19.0-29-DOWNLOAD-TEST
-          path: dist/com.551uk.chatgptgecko_0.19.0-29_iphoneos-arm64.deb
+          name: ChatGPT-0.19.0-30-DOWNLOAD-TEST
+          path: dist/com.551uk.chatgptgecko_0.19.0-30_iphoneos-arm64.deb
           if-no-files-found: error
