@@ -75,7 +75,7 @@ scripts.append({
 manifest["content_scripts"] = scripts
 # Bump the built-in extension version so Gecko refreshes the installed copy
 # for users upgrading from the previous ChatGPT package.
-manifest["version"] = "1.0.8"
+manifest["version"] = "1.0.9"
 manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 print("Injected ChatGPT app presentation content script into", manifest_path)
 PY
