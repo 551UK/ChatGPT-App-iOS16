@@ -191,95 +191,17 @@ static void CGSetPreference(NSString *key, id value) {
     self.heroGradient.frame = self.hero.bounds;
 }
 
-- (PSSpecifier *)buttonNamed:(NSString *)name identifier:(NSString *)identifier action:(SEL)action {
-    PSSpecifier *specifier =
-        [PSSpecifier preferenceSpecifierNamed:name
-                                       target:self
-                                          set:nil
-                                          get:nil
-                                       detail:nil
-                                         cell:PSButtonCell
-                                         edit:nil];
-    [specifier setButtonAction:action];
-    [specifier setProperty:identifier forKey:@"id"];
-    [specifier setProperty:NSStringFromSelector(action) forKey:@"action"];
-    return specifier;
-}
-
 - (NSArray *)specifiers {
-    if (_specifiers) return _specifiers;
-
-    NSMutableArray *items = [NSMutableArray array];
-
-    PSSpecifier *dataGroup = [PSSpecifier groupSpecifierWithName:@"BROWSING DATA"];
-    [dataGroup setProperty:
-        @"Clears only local browser data. Your ChatGPT login and conversations are preserved. Changes apply the next time ChatGPT opens."
-                   forKey:@"footerText"];
-    [items addObject:dataGroup];
-
-    PSSpecifier *noHistory =
-        [PSSpecifier preferenceSpecifierNamed:@"Don't Save Local Browsing History"
-                                       target:self
-                                          set:@selector(setNoHistory:specifier:)
-                                          get:@selector(readNoHistory:)
-                                       detail:nil
-                                         cell:PSSwitchCell
-                                         edit:nil];
-    [noHistory setProperty:@"dontSaveLocalHistory" forKey:@"key"];
-    [noHistory setProperty:@NO forKey:@"default"];
-    [items addObject:noHistory];
-
-    [items addObject:[self buttonNamed:@"Clear Local Browsing History"
-                            identifier:@"clearHistory"
-                                action:@selector(clearHistory:)]];
-    [items addObject:[self buttonNamed:@"Clear Cache"
-                            identifier:@"clearCache"
-                                action:@selector(clearCache:)]];
-
-    PSSpecifier *tipsGroup = [PSSpecifier groupSpecifierWithName:@"GOOD TO KNOW"];
-    [items addObject:tipsGroup];
-
-    PSSpecifier *refresh = [PSSpecifier preferenceSpecifierNamed:@""
-                                                           target:self
-                                                              set:nil
-                                                              get:nil
-                                                           detail:nil
-                                                             cell:PSStaticTextCell
-                                                             edit:nil];
-    [refresh setProperty:@"CGPGuideCell" forKey:@"cellClass"];
-    [refresh setProperty:@"refresh" forKey:@"tipKind"];
-    [refresh setProperty:@94.0 forKey:@"height"];
-    [items addObject:refresh];
-
-    PSSpecifier *back = [PSSpecifier preferenceSpecifierNamed:@""
-                                                        target:self
-                                                           set:nil
-                                                           get:nil
-                                                        detail:nil
-                                                          cell:PSStaticTextCell
-                                                          edit:nil];
-    [back setProperty:@"CGPGuideCell" forKey:@"cellClass"];
-    [back setProperty:@"back" forKey:@"tipKind"];
-    [back setProperty:@94.0 forKey:@"height"];
-    [items addObject:back];
-
-    PSSpecifier *projectGroup = [PSSpecifier groupSpecifierWithName:@"PROJECT"];
-    [projectGroup setProperty:@"Made for iOS 16 by 551UK." forKey:@"footerText"];
-    [items addObject:projectGroup];
-
-    [items addObject:[self buttonNamed:@"View on GitHub"
-                            identifier:@"githubLink"
-                                action:@selector(openRepository:)]];
-
-    _specifiers = [items copy];
+    if (!_specifiers) {
+        _specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
+    }
     return _specifiers;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView
          cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     UITableViewCell *cell = [super tableView:tableView cellForRowAtIndexPath:indexPath];
-    PSSpecifier *specifier = [self specifierAtIndexPath:indexPath];
-    NSString *identifier = [specifier propertyForKey:@"id"];
+    NSString *identifier = [[self specifierAtIndexPath:indexPath] propertyForKey:@"id"];
 
     if ([identifier isEqualToString:@"clearHistory"] ||
         [identifier isEqualToString:@"clearCache"]) {
@@ -324,6 +246,8 @@ static void CGSetPreference(NSString *key, id value) {
                 [stack.trailingAnchor constraintLessThanOrEqualToAnchor:cell.contentView.trailingAnchor constant:-16.0]
             ]];
         }
+
+        cell.accessibilityLabel = @"View ChatGPT App on GitHub";
     }
 
     return cell;
