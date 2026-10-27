@@ -249,7 +249,7 @@ static BOOL CGStartupPageReady(void) {
 }
 
 static UIImage *CGStartupIcon(void) {
-    NSString *path = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"StartupLoaderIcon.jpg"];
+    NSString *path = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"StartupLoaderIcon.png"];
     return [UIImage imageWithContentsOfFile:path];
 }
 
