@@ -349,8 +349,9 @@ static void CGApplyHistoryPolicy(BOOL noHistory, BOOL clearExisting) {
     CGWriteGeckoHistoryPreference(noHistory);
 }
 
-__attribute__((constructor))
-static void CGDataMaintenanceInit(void) {
+// Called explicitly from CGStart before any startup tab is seeded.
+// Do not turn this back into a constructor: that makes the order undefined.
+void CGRunPendingDataMaintenance(void) {
     @autoreleasepool {
         if (!CGIsChatGPTApp()) return;
 
