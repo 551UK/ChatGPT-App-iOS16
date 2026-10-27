@@ -32,15 +32,6 @@ def main():
         # Avoid hijacking the original browser's reynard:// deep links.
         d.pop("CFBundleURLTypes", None)
 
-        # Keep non-audio background capabilities. The app is not a background
-        # audio player; native Now Playing registration is blocked separately.
-        background_modes = d.get("UIBackgroundModes")
-        if isinstance(background_modes, list):
-            background_modes = [mode for mode in background_modes if mode != "audio"]
-            if background_modes:
-                d["UIBackgroundModes"] = background_modes
-            else:
-                d.pop("UIBackgroundModes", None)
         icons = d.setdefault("CFBundleIcons", {}).setdefault("CFBundlePrimaryIcon", {})
         icons.pop("CFBundleIconName", None)
         icons["CFBundleIconFiles"] = ["AppIcon60x60", "AppIcon76x76"]
