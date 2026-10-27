@@ -34,6 +34,18 @@
 
         <dict>
             <key>cell</key><string>PSGroupCell</string>
+            <key>label</key><string>CHATGPT APPEARANCE</string>
+            <key>footerText</key><string>Opens ChatGPT directly on the Appearance settings page. This page is available when you're signed in and your account has access to Appearance settings.</string>
+        </dict>
+        <dict>
+            <key>cell</key><string>PSButtonCell</string>
+            <key>id</key><string>appearanceLink</string>
+            <key>label</key><string>Open Appearance Settings</string>
+            <key>action</key><string>openAppearance:</string>
+        </dict>
+
+        <dict>
+            <key>cell</key><string>PSGroupCell</string>
             <key>label</key><string>GOOD TO KNOW</string>
         </dict>
         <dict>
