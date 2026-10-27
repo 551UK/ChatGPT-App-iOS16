@@ -17,7 +17,7 @@ Download the `com.551uk.chatgptgecko_0.19.0-6_iphoneos-arm64.deb` package from t
 
 The real ChatGPT website remains the conversation engine because it already provides current conversations, attachments, search and account features. Reynard's URL bar, bottom toolbar and tab overview are hidden. Interface work now adds an official-app-style fixed **New Chat** compose control without replacing the website's working hamburger/sidebar or login/account controls. A small native back control is reserved for voice routes so a fullscreen voice page cannot trap you.
 
-For this dedicated ChatGPT wrapper, Reynard's **chatgpt.com microphone site permission is pre-allowed** so the browser-level prompt does not have to be repeated. The app explicitly asks iOS for microphone authorization on first active launch when the system state is still Not Determined. iOS itself cannot be silently pre-authorized; the system prompt must still be accepted once. The Swift Gecko bridge also resets Reynard's hidden toolbar geometry inside Gecko so the web viewport no longer reserves a blank bottom strip.
+For this dedicated ChatGPT wrapper, Reynard's **chatgpt.com microphone site permission is pre-allowed** so the browser-level prompt does not have to be repeated. The app explicitly asks iOS for microphone authorization on first active launch when the system state is still Not Determined. iOS itself cannot be silently pre-authorized; the system prompt must still be accepted once. The wrapper also overrides Reynard's hidden bottom-toolbar geometry so its invisible 94-point toolbar/minimized safe-area height is no longer reserved underneath ChatGPT.
 
 ## Building
 
