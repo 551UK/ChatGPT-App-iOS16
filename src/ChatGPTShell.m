@@ -10,6 +10,8 @@
 
 static NSString *const CGBundleID = @"com.551uk.chatgptios16";
 static NSString *const CGHomeURL = @"https://chatgpt.com/";
+static NSString *const CGStartupTitleMarker = @"__CG_STARTING__";
+static IMP CGOriginalControllerLoad = NULL;
 static IMP CGOriginalControllerLayout = NULL;
 static IMP CGOriginalControllerAppear = NULL;
 static IMP CGOriginalUIViewSetHidden = NULL;
@@ -18,6 +20,7 @@ static BOOL CGHooksInstalled = NO;
 static const void *CGConstraintsAdjustedKey = &CGConstraintsAdjustedKey;
 static const void *CGLayoutPendingKey = &CGLayoutPendingKey;
 static const void *CGToolbarRelayoutKey = &CGToolbarRelayoutKey;
+static const void *CGStartupOverlayKey = &CGStartupOverlayKey;
 
 static BOOL CGIsOurApp(void) {
     return [[[NSBundle mainBundle] bundleIdentifier] isEqualToString:CGBundleID];
@@ -175,6 +178,15 @@ static void CGEnsureStartupTab(void) {
     }
     if (chatID.length) {
         stmt = NULL;
+        const char *mark = "UPDATE tabs SET title=? WHERE id=?";
+        if (sqlite3_prepare_v2(db, mark, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, CGStartupTitleMarker.UTF8String, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2, chatID.UTF8String, -1, SQLITE_TRANSIENT);
+            sqlite3_step(stmt);
+        }
+        sqlite3_finalize(stmt);
+
+        stmt = NULL;
         const char *select = "INSERT INTO tab_state (id, selected_regular_tab_id, selected_private_tab_id, selected_tab_mode, last_tab_overview) "
                              "VALUES (1, ?, NULL, 'regular', 'regular') "
                              "ON CONFLICT(id) DO UPDATE SET selected_regular_tab_id=excluded.selected_regular_tab_id, "
@@ -193,6 +205,169 @@ static void CGEnsureStartupTab(void) {
 // Full-screen app navigation. Gecko remains the page engine and all Reynard
 // browser chrome stays hidden. Navigation is gesture-only: swipe right from
 // the left edge to trigger Gecko history back.
+
+static NSString *CGTabStorePath(void) {
+    NSArray<NSString *> *dirs = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
+    if (!dirs.count) return nil;
+    return [dirs[0] stringByAppendingPathComponent:@"AppData/TabManagement/TabManagement"];
+}
+
+static BOOL CGStartupPageReady(void) {
+    NSString *path = CGTabStorePath();
+    if (!path.length) return NO;
+
+    sqlite3 *db = NULL;
+    if (sqlite3_open_v2(path.UTF8String, &db,
+                        SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, NULL) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        return NO;
+    }
+    sqlite3_busy_timeout(db, 150);
+
+    BOOL ready = NO;
+    sqlite3_stmt *stmt = NULL;
+    const char *sql =
+      "SELECT t.title, t.url FROM tab_state s "
+      "JOIN tabs t ON t.id=s.selected_regular_tab_id "
+      "WHERE s.id=1 LIMIT 1";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK &&
+        sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *titleValue = (const char *)sqlite3_column_text(stmt, 0);
+        const char *urlValue = (const char *)sqlite3_column_text(stmt, 1);
+        NSString *title = titleValue ? [NSString stringWithUTF8String:titleValue] : @"";
+        NSString *url = urlValue ? [NSString stringWithUTF8String:urlValue] : @"";
+        NSString *lowerURL = url.lowercaseString;
+        BOOL isChatGPT = [lowerURL hasPrefix:@"https://chatgpt.com"] ||
+                         [lowerURL hasPrefix:@"https://www.chatgpt.com"] ||
+                         [lowerURL hasPrefix:@"https://chat.openai.com"];
+        ready = isChatGPT && title.length > 0 && ![title isEqualToString:CGStartupTitleMarker];
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return ready;
+}
+
+static UIImage *CGStartupIcon(void) {
+    NSBundle *bundle = NSBundle.mainBundle;
+    for (NSString *name in @[@"AppIcon60x60@3x.png",
+                              @"AppIcon60x60@2x.png",
+                              @"AppIcon60x60.png"]) {
+        NSString *path = [bundle.bundlePath stringByAppendingPathComponent:name];
+        UIImage *image = [UIImage imageWithContentsOfFile:path];
+        if (image) return image;
+    }
+    return nil;
+}
+
+@interface CGStartupOverlay : NSObject
+@property(nonatomic,weak) UIViewController *owner;
+@property(nonatomic,strong) UIView *overlay;
+@property(nonatomic,strong) UIActivityIndicatorView *spinner;
+@property(nonatomic,strong) NSDate *startedAt;
+@property(nonatomic,assign) BOOL finished;
+- (void)installInController:(UIViewController *)controller;
+@end
+
+@implementation CGStartupOverlay
+
+- (void)installInController:(UIViewController *)controller {
+    if (self.overlay || !controller.isViewLoaded) return;
+    self.owner = controller;
+    self.startedAt = NSDate.date;
+
+    UIView *root = controller.view;
+    UIView *overlay = [[UIView alloc] initWithFrame:root.bounds];
+    overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    overlay.backgroundColor = UIColor.systemBackgroundColor;
+    overlay.accessibilityIdentifier = @"ChatGPTNativeStartupLoader";
+
+    UIImageView *icon = [[UIImageView alloc] initWithImage:CGStartupIcon()];
+    icon.translatesAutoresizingMaskIntoConstraints = NO;
+    icon.contentMode = UIViewContentModeScaleAspectFit;
+    icon.layer.cornerRadius = 18.0;
+    icon.clipsToBounds = YES;
+    [overlay addSubview:icon];
+
+    UILabel *label = [UILabel new];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    label.text = @"ChatGPT";
+    label.textColor = UIColor.labelColor;
+    label.font = [UIFont systemFontOfSize:18.0 weight:UIFontWeightSemibold];
+    label.textAlignment = NSTextAlignmentCenter;
+    [overlay addSubview:label];
+
+    UIActivityIndicatorView *spinner =
+      [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+    spinner.translatesAutoresizingMaskIntoConstraints = NO;
+    spinner.color = UIColor.secondaryLabelColor;
+    [spinner startAnimating];
+    [overlay addSubview:spinner];
+    self.spinner = spinner;
+
+    [root addSubview:overlay];
+    self.overlay = overlay;
+
+    [NSLayoutConstraint activateConstraints:@[
+        [icon.centerXAnchor constraintEqualToAnchor:overlay.centerXAnchor],
+        [icon.centerYAnchor constraintEqualToAnchor:overlay.centerYAnchor constant:-42.0],
+        [icon.widthAnchor constraintEqualToConstant:72.0],
+        [icon.heightAnchor constraintEqualToConstant:72.0],
+
+        [label.topAnchor constraintEqualToAnchor:icon.bottomAnchor constant:16.0],
+        [label.centerXAnchor constraintEqualToAnchor:overlay.centerXAnchor],
+
+        [spinner.topAnchor constraintEqualToAnchor:label.bottomAnchor constant:18.0],
+        [spinner.centerXAnchor constraintEqualToAnchor:overlay.centerXAnchor],
+    ]];
+
+    NSLog(@"[ChatGPTGecko] Native startup loader shown");
+    [self scheduleReadyCheck];
+}
+
+- (void)scheduleReadyCheck {
+    if (self.finished) return;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.20 * NSEC_PER_SEC)),
+                   dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        BOOL pageReady = CGStartupPageReady();
+        dispatch_async(dispatch_get_main_queue(), ^{
+            CGStartupOverlay *strongSelf = weakSelf;
+            if (!strongSelf || strongSelf.finished) return;
+
+            NSTimeInterval elapsed = -[strongSelf.startedAt timeIntervalSinceNow];
+            // Give the document-start cleanup a fraction of a second after the
+            // Gecko title update so the loader never reveals the old web UI.
+            if ((pageReady && elapsed >= 0.9) || elapsed >= 8.0) {
+                [strongSelf finishAnimated:YES];
+            } else {
+                [strongSelf scheduleReadyCheck];
+            }
+        });
+    });
+}
+
+- (void)finishAnimated:(BOOL)animated {
+    if (self.finished) return;
+    self.finished = YES;
+    UIView *overlay = self.overlay;
+    if (!overlay) return;
+
+    [self.spinner stopAnimating];
+    void (^cleanup)(void) = ^{
+        [overlay removeFromSuperview];
+        self.overlay = nil;
+        NSLog(@"[ChatGPTGecko] Native startup loader hidden");
+    };
+    if (!animated) {
+        cleanup();
+        return;
+    }
+    [UIView animateWithDuration:0.24
+                     animations:^{ overlay.alpha = 0.0; }
+                     completion:^(__unused BOOL finished) { cleanup(); }];
+}
+@end
+
 @interface CGAppNavigation : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic,weak) UIViewController *owner;
 @property(nonatomic,strong) UIScreenEdgePanGestureRecognizer *backGesture;
@@ -361,6 +536,8 @@ static void CGApplyAppLayout(UIViewController *controller) {
         overview.userInteractionEnabled = NO;
     }
     [root bringSubviewToFront:content];
+    CGStartupOverlay *loader = objc_getAssociatedObject(controller, CGStartupOverlayKey);
+    if (loader.overlay) [root bringSubviewToFront:loader.overlay];
 
     // Recalculate Gecko offsets once after the zero-height toolbar hook is active.
     if (![objc_getAssociatedObject(controller, CGToolbarRelayoutKey) boolValue]) {
@@ -388,6 +565,19 @@ static void CGScheduleAppLayout(UIViewController *controller) {
         CGInstallChromeSuppression();
         CGApplyAppLayout(strongController);
     });
+}
+
+static void CGControllerDidLoad(id controller, SEL cmd) {
+    if (CGOriginalControllerLoad) ((void (*)(id,SEL))CGOriginalControllerLoad)(controller, cmd);
+    if (!CGIsBrowserController(controller)) return;
+
+    CGStartupOverlay *loader = objc_getAssociatedObject(controller, CGStartupOverlayKey);
+    if (!loader) {
+        loader = [CGStartupOverlay new];
+        objc_setAssociatedObject(controller, CGStartupOverlayKey, loader,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [loader installInController:(UIViewController *)controller];
+    }
 }
 
 static void CGControllerDidLayout(id controller, SEL cmd) {
@@ -422,11 +612,14 @@ static void CGConfigurePreferences(void) {
 
 static void CGInstallHooks(void) {
     if (!CGIsOurApp() || CGHooksInstalled) return;
+    Method load = class_getInstanceMethod(UIViewController.class, @selector(viewDidLoad));
     Method layout = class_getInstanceMethod(UIViewController.class, @selector(viewDidLayoutSubviews));
     Method appear = class_getInstanceMethod(UIViewController.class, @selector(viewDidAppear:));
-    if (!layout || !appear) return;
+    if (!load || !layout || !appear) return;
+    CGOriginalControllerLoad = method_getImplementation(load);
     CGOriginalControllerLayout = method_getImplementation(layout);
     CGOriginalControllerAppear = method_getImplementation(appear);
+    method_setImplementation(load, (IMP)CGControllerDidLoad);
     method_setImplementation(layout, (IMP)CGControllerDidLayout);
     method_setImplementation(appear, (IMP)CGControllerDidAppear);
     CGHooksInstalled = YES;
