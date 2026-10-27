@@ -192,6 +192,20 @@
       element.classList.add("cg-ios16-topbar-control");
     }
 
+    // Home page: keep ChatGPT's native white header completely untouched.
+    // The left/right icon controls above are still enlarged to 1.30x, but do
+    // not sample a transparent icon as a background colour and do not apply
+    // the custom solid-topbar treatment here.
+    if (hasHomeSwitcher) {
+      for (const old of document.querySelectorAll(".cg-ios16-solid-topbar")) {
+        old.classList.remove("cg-ios16-solid-topbar");
+        old.style.removeProperty("--cg-ios16-topbar-bg");
+        old.style.removeProperty("--cg-ios16-topbar-cutoff");
+        delete old.dataset.cgIos16SolidTopbar;
+      }
+      return true;
+    }
+
     // Locate the real full-width top header from the detected row, rather than
     // walking upward from Share. This works on chat variants where Share is
     // missing, renamed, disabled or rendered in a different subtree.
