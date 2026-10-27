@@ -2,7 +2,7 @@ name: Build ChatGPT (Gecko iOS16)
 
 on:
   push:
-    branches: [main]
+    branches: [settings-rebuild-from-0.22]
   workflow_dispatch:
 
 concurrency:
@@ -26,15 +26,34 @@ jobs:
         run: |
           brew install ldid dpkg
           python3 -m pip install 'lief>=0.17,<0.18' 'Pillow>=10,<13'
+
+      - name: Set up Theos and iOS SDKs
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+
+      - name: Prove app runtime is exact 0.19.0-22
+        run: |
+          set -euo pipefail
+          git diff --exit-code ad1e79623d0b2292c932701d6ab3f9c7b97012c3 HEAD -- src/ChatGPTShell.m web/chatgpt-app-shell.js
+          echo "PASS: ChatGPT runtime is byte-for-byte source-equivalent to saved 0.19.0-22"
+
       - name: Package Gecko-based ChatGPT app
         run: bash scripts/package.sh
       - name: Verify app content and Mach-O load command
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-22_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-25_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
+          dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/ChatGPTPrefs'
+          dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/Info.plist'
+          dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/icon.png'
+          dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceLoader/Preferences/ChatGPT.plist'
+          dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceLoader/Preferences/ChatGPT.png'
+          dpkg-deb --field dist/*.deb Depends | grep -F 'preferenceloader'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
           otool -L "$MAIN" | grep -F '@executable_path/Frameworks/ChatGPTShell.dylib'
           test -s build/work/unpacked/Payload/ChatGPT.app/AppIcon60x60@3x.png
@@ -87,7 +106,46 @@ jobs:
           grep -Fq '"run_at": "document_start"' scripts/package.sh
           find build/work/unpacked/Payload/ChatGPT.app -path '*/extensions/readerview/chatgpt-app-shell.js' -type f | grep -q .
           grep -Fq 'Reynard-Jailbroken.ipa' scripts/package.sh
-          # The actual runtime navigation/microphone UI must be device-tested.
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          import plistlib
+          import subprocess
+          import tempfile
+
+          deb = next(Path("dist").glob("*.deb"))
+          with tempfile.TemporaryDirectory() as td:
+              subprocess.run(["dpkg-deb", "-x", str(deb), td], check=True)
+              root = Path(td)
+              prefs = root / "var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle"
+              entry_path = root / "var/jb/Library/PreferenceLoader/Preferences/ChatGPT.plist"
+              settings_icon = root / "var/jb/Library/PreferenceLoader/Preferences/ChatGPT.png"
+
+              assert Image.open(settings_icon).size == (29, 29)
+              assert Image.open(prefs / "icon.png").size == (29, 29)
+
+              info = plistlib.loads((prefs / "Info.plist").read_bytes())
+              assert info["CFBundleDisplayName"] == "ChatGPT"
+              assert info["CFBundleExecutable"] == "ChatGPTPrefs"
+              assert info["NSPrincipalClass"] == "CGPRootListController"
+              assert info["MinimumOSVersion"] == "16.0"
+
+              entry = plistlib.loads(entry_path.read_bytes())["entry"]
+              expected_icon = "/var/jb/Library/PreferenceLoader/Preferences/ChatGPT.png"
+              assert entry["bundle"] == "ChatGPTPrefs"
+              assert entry["detail"] == "CGPRootListController"
+              assert entry["controller"] == "CGPRootListController"
+              assert entry["icon"] == expected_icon
+              assert entry["iconImage"] == expected_icon
+
+              exe = prefs / "ChatGPTPrefs"
+              linked = subprocess.check_output(["otool", "-L", str(exe)], text=True)
+              assert "/System/Library/PrivateFrameworks/Preferences.framework/Preferences" in linked
+              subprocess.run(["xcrun", "lipo", str(exe), "-verify_arch", "arm64", "arm64e"], check=True)
+
+          print("PASS: preference bundle, arm64/arm64e slices, icon and rootless PreferenceLoader metadata verified")
+          PY
+          # The actual Settings loading and icon rendering must still be device-tested.
       - uses: actions/upload-artifact@v4
         with:
           name: ChatGPT-Gecko-iOS16
@@ -95,22 +153,3 @@ jobs:
             dist/ChatGPT-Gecko-iOS16.ipa
             dist/*.deb
           if-no-files-found: error
-      - name: Publish latest test build
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git fetch origin main --depth=1
-          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-            echo 'Skipping outdated build release'
-            exit 0
-          fi
-          TAG="gecko-test"
-          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-22. Keeps the working 0.21 keyboard behavior and hidden-action-bar fix, then removes Reynard's remaining 12pt focused-input clearance by adjusting the native ContentView transform target before UIKit animates it. This means the composer moves once with the keyboard to its final position, with no delayed JavaScript correction or visible second-stage jump. Keeps the mobile-web app-promotion hidden before paint and preserves the 0.18 web composer presentation. Rootless Dopamine DEB plus test IPA."
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
-            gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
-          else
-            gh release create "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --prerelease --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
-          fi
