@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/message.h>
+#import <math.h>
 
 static NSString * const CGDownloadStoreDidChange = @"DownloadStore.DidChange";
 static NSString * const CGDownloadStoreDidStart = @"DownloadStore.DidStartDownload";
@@ -252,6 +253,8 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
 @property(nonatomic,strong) NSLayoutConstraint *heightConstraint;
 @property(nonatomic,strong) NSLayoutConstraint *centerXConstraint;
 @property(nonatomic,strong) NSLayoutConstraint *trailingConstraint;
+@property(nonatomic,strong) NSLayoutConstraint *iconLeadingConstraint;
+@property(nonatomic,strong) NSLayoutConstraint *iconCenterConstraint;
 @property(nonatomic,assign) CGDownloadPillMode mode;
 - (void)attachToWindow:(UIWindow *)window;
 - (void)showDownloadingProgress:(CGFloat)progress fileName:(NSString *)fileName;
@@ -320,8 +323,12 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
     _actionButton.layer.cornerRadius = 18.0;
     [self addSubview:_actionButton];
 
+    _iconLeadingConstraint = [_iconBackground.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:12.0];
+    _iconCenterConstraint = [_iconBackground.centerXAnchor constraintEqualToAnchor:self.centerXAnchor];
+    _iconCenterConstraint.active = NO;
+
     [NSLayoutConstraint activateConstraints:@[
-        [_iconBackground.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:12.0],
+        _iconLeadingConstraint,
         [_iconBackground.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
         [_iconBackground.widthAnchor constraintEqualToConstant:40.0],
         [_iconBackground.heightAnchor constraintEqualToConstant:40.0],
@@ -387,6 +394,8 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
     if (compact) {
         self.centerXConstraint.active = NO;
         self.trailingConstraint.active = YES;
+        self.iconLeadingConstraint.active = NO;
+        self.iconCenterConstraint.active = YES;
         self.widthConstraint.constant = 46.0;
         self.heightConstraint.constant = 46.0;
         self.layer.cornerRadius = 23.0;
@@ -400,6 +409,8 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
     } else {
         self.trailingConstraint.active = NO;
         self.centerXConstraint.active = YES;
+        self.iconCenterConstraint.active = NO;
+        self.iconLeadingConstraint.active = YES;
         CGFloat targetWidth = MIN(300.0, MAX(250.0, CGRectGetWidth(self.superview.bounds) - 42.0));
         self.widthConstraint.constant = targetWidth;
         self.heightConstraint.constant = 72.0;
