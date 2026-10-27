@@ -11,11 +11,11 @@ Experimental **ChatGPT app** using the complete mobile website at https://chatgp
 
 ## Installation
 
-Download the `com.551uk.chatgptgecko_0.19.0-3_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
+Download the `com.551uk.chatgptgecko_0.19.0-4_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
 
 ## App-style navigation and microphone
 
-The real ChatGPT website is the interface. A compact native **•••** app options button appears below the site's top-right header and contains **Back to chats**, **Enable microphone**, and **Reload ChatGPT**. You can also swipe from the left edge to return to chats if you get stuck in voice mode. The button is an app recovery menu, **not a browser address or tab bar**. Microphone permission is requested only when you select Enable microphone; Gecko's website-level permission prompt may still be required. Video, advanced voice and specific native-only app features depend on actual website and Gecko support. The app is not an exact clone of the current official ChatGPT IPA.
+The real ChatGPT website is the interface. The native **•••** options button offers **Back to chats**, **New chat**, **Enable microphone**, and **Reload ChatGPT**. The app now hides Reynard's native URL bar and bottom toolbar via the controller's UIKit lifecycle, including on relayout, while leaving the native Gecko child views intact. You can also swipe from the left edge to return to chats if you get stuck in voice mode. The button is an app recovery menu, **not a browser address or tab bar**. The site-origin prompt (“Allow chatgpt.com to use your microphone?”) is owned by Reynard/Gecko's original media permission delegate and must appear when the website requests audio. The optional native Enable microphone button handles the distinct iOS TCC authorization. A build success does not prove website voice works; verify on-device. Video, advanced voice and specific native-only app features depend on actual website and Gecko support. The app is not an exact clone of the current official ChatGPT IPA.
 
 ## Building
 
