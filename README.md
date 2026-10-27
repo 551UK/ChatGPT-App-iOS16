@@ -11,13 +11,13 @@ Experimental **ChatGPT app** using the complete mobile website at https://chatgp
 
 ## Installation
 
-Download the `com.551uk.chatgptgecko_0.19.0-11_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
+Download the `com.551uk.chatgptgecko_0.19.0-12_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
 
 ## App-style navigation and microphone
 
 The real ChatGPT website remains the conversation engine because it already provides current conversations, attachments, search and account features. Reynard's URL bar, toolbar, tab overview, share controls and browser branding are hidden. There are **no visible native Back/Forward buttons** and no Forward action. The page fills the screen to the device bottom. Back navigation is gesture-only: swipe right from the left edge to trigger Gecko's history Back.
 
-A Gecko content script cleans the website presentation without replacing ChatGPT's functionality: it removes the **What can you do?** suggestion, hides both small footer/disclaimer variants shown on the home page and active-chat page, and docks the **Ask ChatGPT** composer to the real iOS bottom safe area so it sits like the native app.
+A Gecko content script cleans the website presentation without replacing ChatGPT's functionality. It now runs at **document start**: the page is kept hidden for the initial paint, the **What can you do?** suggestion and footer/disclaimer are removed, the **Ask ChatGPT** composer is positioned, and only then is the finished page revealed. This avoids the visible show-then-hide flash on launch. A short fail-safe always reveals the page if ChatGPT changes its markup.
 
 For this dedicated ChatGPT wrapper, Reynard's **chatgpt.com microphone site permission is pre-allowed** and the app requests iOS microphone authorization when needed. The microphone flow is left unchanged from the working build. Reynard's invisible toolbar geometry is zeroed so it cannot reserve blank space underneath the page.
 
