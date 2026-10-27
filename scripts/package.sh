@@ -34,6 +34,13 @@ done
 mkdir -p "$APP/Frameworks"
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CLANG="$(xcrun --sdk iphoneos --find clang)"
+SWIFTC="$(xcrun --find swiftc)"
+
+# Small Swift bridge talks directly to the public GeckoView framework already
+# bundled by Reynard. It clears engine-side dynamic-toolbar insets and provides
+# native app navigation without modifying chatgpt.com's page scripts.
+"$SWIFTC" -target arm64-apple-ios16.0 -sdk "$SDK" -O -emit-library     -module-name ChatGPTBridge     -F "$APP/Frameworks" -framework GeckoView     -Xlinker -rpath -Xlinker @loader_path     "$ROOT/src/ChatGPTBridge.swift"     -o "$APP/Frameworks/ChatGPTBridge.dylib"
+
 "$CLANG" -arch arm64 -isysroot "$SDK" -miphoneos-version-min=16.0 \
     -fobjc-arc -fblocks -O2 -dynamiclib \
     -framework Foundation -framework UIKit -framework CoreGraphics -lsqlite3 \
@@ -84,6 +91,7 @@ sign_binary() {
         ldid -S "$exe"
     fi
 }
+sign_binary "$APP/Frameworks/ChatGPTBridge.dylib" nothing
 sign_binary "$APP/Frameworks/ChatGPTShell.dylib" nothing
 for PLUG in "$APP"/PlugIns/*.appex; do
     [ -d "$PLUG" ] || continue
@@ -121,7 +129,7 @@ ditto "$NEWAPP" "$PKG/var/jb/Applications/ChatGPT.app"
 cat > "$PKG/DEBIAN/control" <<'CONTROL'
 Package: com.551uk.chatgptgecko
 Name: ChatGPT
-Version: 0.19.0-5
+Version: 0.19.0-6
 Architecture: iphoneos-arm64
 Maintainer: 551UK
 Author: 551UK
@@ -144,7 +152,7 @@ if command -v uicache >/dev/null 2>&1; then uicache -a || true; fi
 exit 0
 POSTRM
 chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/postrm"
-DEB="$DIST/com.551uk.chatgptgecko_0.19.0-5_iphoneos-arm64.deb"
+DEB="$DIST/com.551uk.chatgptgecko_0.19.0-6_iphoneos-arm64.deb"
 dpkg-deb --root-owner-group -Zxz --build "$PKG" "$DEB"
 dpkg-deb --field "$DEB" Package Architecture
 ls -lh "$DEB"
