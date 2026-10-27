@@ -34,13 +34,6 @@ done
 mkdir -p "$APP/Frameworks"
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CLANG="$(xcrun --sdk iphoneos --find clang)"
-SWIFTC="$(xcrun --find swiftc)"
-
-# Small Swift bridge talks directly to the public GeckoView framework already
-# bundled by Reynard. It clears engine-side dynamic-toolbar insets and provides
-# native app navigation without modifying chatgpt.com's page scripts.
-"$SWIFTC" -target arm64-apple-ios16.0 -sdk "$SDK" -O -emit-library     -module-name ChatGPTBridge     -F "$APP/Frameworks" -framework GeckoView     -Xlinker -rpath -Xlinker @loader_path     "$ROOT/src/ChatGPTBridge.swift"     -o "$APP/Frameworks/ChatGPTBridge.dylib"
-
 "$CLANG" -arch arm64 -isysroot "$SDK" -miphoneos-version-min=16.0 \
     -fobjc-arc -fblocks -O2 -dynamiclib \
     -framework Foundation -framework UIKit -framework CoreGraphics -lsqlite3 \
@@ -91,7 +84,6 @@ sign_binary() {
         ldid -S "$exe"
     fi
 }
-sign_binary "$APP/Frameworks/ChatGPTBridge.dylib" nothing
 sign_binary "$APP/Frameworks/ChatGPTShell.dylib" nothing
 for PLUG in "$APP"/PlugIns/*.appex; do
     [ -d "$PLUG" ] || continue
