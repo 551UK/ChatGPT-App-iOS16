@@ -2,7 +2,7 @@ name: Build ChatGPT App (iOS 16)
 
 on:
   push:
-    branches: [login-safe-clear-data-v55]
+    branches: [clear-data-startup-order-v56]
   workflow_dispatch:
 
 concurrency:
@@ -39,7 +39,40 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main --depth=1
-          git diff --exit-code ad1e79623d0b2292c932701d6ab3f9c7b97012c3 HEAD -- src/ChatGPTShell.m
+          # Only one known startup-order change is allowed in the app shell.
+          # Verify that the media/player, layouts, loader and navigation remain
+          # byte-for-byte identical to the known working baseline elsewhere.
+          python3 - <<'PY'
+          import subprocess
+          from pathlib import Path
+          original = subprocess.check_output(
+              ["git","show","ad1e79623d0b2292c932701d6ab3f9c7b97012c3:src/ChatGPTShell.m"],text=True)
+          before = """static void CGStart(void) {
+              @autoreleasepool {
+                  if (!CGIsOurApp()) return;
+                  CGConfigurePreferences();
+                  CGPreallowChatGPTMicrophoneSite();
+                  CGEnsureStartupTab();"""
+          after = """static void CGStart(void) {
+              @autoreleasepool {
+                  if (!CGIsOurApp()) return;
+                  // Clear requested tabs/cache before creating the ChatGPT startup tab.
+                  // The previous independent constructors could run in the reverse order,
+                  // deleting the newly seeded tab and causing a blank first launch.
+                  extern void CGRunPendingDataMaintenance(void);
+                  CGRunPendingDataMaintenance();
+                  CGConfigurePreferences();
+                  CGPreallowChatGPTMicrophoneSite();
+                  CGEnsureStartupTab();"""
+          assert before in original, "Known startup baseline changed"
+          expected = original.replace(before,after,1)
+          assert Path("src/ChatGPTShell.m").read_text() == expected, "Unexpected change to app shell"
+          data = Path("src/ChatGPTDataMaintenance.m").read_text()
+          assert "__attribute__((constructor))\nstatic void CGDataMaintenanceInit(void)" not in data
+          assert "void CGRunPendingDataMaintenance(void)" in data
+          assert expected.index("CGRunPendingDataMaintenance();") < expected.index("CGEnsureStartupTab();")
+          print("PASS: queued cleanup is ordered before tab creation")
+          PY
           git diff --exit-code origin/main HEAD -- prefs/PreferenceLoader.plist prefs/Resources/Info.plist
           test -s src/ChatGPTContextMenu.m
           grep -Fq 'CGChatGPTContextMenuFactory' src/ChatGPTContextMenu.m
@@ -49,7 +82,7 @@ jobs:
           grep -Fq 'addTargetWithHandler:' src/ChatGPTRemoteRegistration.m
           grep -Fq 'ChatGPTRemoteRegistration.m' scripts/package.sh
           grep -Fq -- '-framework MediaPlayer' scripts/package.sh
-          echo "PASS: native ChatGPT shell is exact 0.19.0-22 and working Settings/data code matches current main"
+          echo "PASS: native ChatGPT shell matches known-good baseline except ordered cleanup, Settings/data code verified"
 
       - name: Package Gecko-based ChatGPT app
         run: bash scripts/package.sh
@@ -57,7 +90,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-55_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-56_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/ChatGPTPrefs'
@@ -87,6 +120,8 @@ jobs:
           assert "NSMicrophoneUsageDescription" in helper
           print("Verified app isolation: separate app/profile/helper, microphone declarations, no browser URL schemes")
           PY
+          grep -Fq 'CGRunPendingDataMaintenance();' src/ChatGPTShell.m
+          grep -Fq 'void CGRunPendingDataMaintenance(void)' src/ChatGPTDataMaintenance.m
           grep -Fq 'CGControllerDidLayout' src/ChatGPTShell.m
           grep -Fq 'CGAlwaysHideChrome' src/ChatGPTShell.m
           grep -Fq 'UIScreenEdgePanGestureRecognizer' src/ChatGPTShell.m
@@ -246,6 +281,6 @@ jobs:
           # The actual Settings loading and icon rendering must still be device-tested.
       - uses: actions/upload-artifact@v4
         with:
-          name: ChatGPT-0.19.0-55-CLEAN-MEDIA-ROLLBACK
-          path: dist/com.551uk.chatgptgecko_0.19.0-55_iphoneos-arm64.deb
+          name: ChatGPT-0.19.0-56-CLEAN-MEDIA-ROLLBACK
+          path: dist/com.551uk.chatgptgecko_0.19.0-56_iphoneos-arm64.deb
           if-no-files-found: error
