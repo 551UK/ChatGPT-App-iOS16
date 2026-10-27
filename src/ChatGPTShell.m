@@ -7,6 +7,7 @@
 #import <sqlite3.h>
 #import <objc/message.h>
 #import <AVFoundation/AVFoundation.h>
+#import <QuartzCore/QuartzCore.h>
 
 static NSString *const CGBundleID = @"com.551uk.chatgptios16";
 static NSString *const CGHomeURL = @"https://chatgpt.com/";
@@ -248,21 +249,13 @@ static BOOL CGStartupPageReady(void) {
 }
 
 static UIImage *CGStartupIcon(void) {
-    NSBundle *bundle = NSBundle.mainBundle;
-    for (NSString *name in @[@"AppIcon60x60@3x.png",
-                              @"AppIcon60x60@2x.png",
-                              @"AppIcon60x60.png"]) {
-        NSString *path = [bundle.bundlePath stringByAppendingPathComponent:name];
-        UIImage *image = [UIImage imageWithContentsOfFile:path];
-        if (image) return image;
-    }
-    return nil;
+    NSString *path = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"StartupLoaderIcon.jpg"];
+    return [UIImage imageWithContentsOfFile:path];
 }
 
 @interface CGStartupOverlay : NSObject
 @property(nonatomic,weak) UIViewController *owner;
 @property(nonatomic,strong) UIView *overlay;
-@property(nonatomic,strong) UIActivityIndicatorView *spinner;
 @property(nonatomic,strong) NSDate *startedAt;
 @property(nonatomic,assign) BOOL finished;
 - (void)installInController:(UIViewController *)controller;
@@ -278,47 +271,31 @@ static UIImage *CGStartupIcon(void) {
     UIView *root = controller.view;
     UIView *overlay = [[UIView alloc] initWithFrame:root.bounds];
     overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    overlay.backgroundColor = UIColor.systemBackgroundColor;
+    overlay.backgroundColor = UIColor.whiteColor;
     overlay.accessibilityIdentifier = @"ChatGPTNativeStartupLoader";
 
     UIImageView *icon = [[UIImageView alloc] initWithImage:CGStartupIcon()];
     icon.translatesAutoresizingMaskIntoConstraints = NO;
     icon.contentMode = UIViewContentModeScaleAspectFit;
-    icon.layer.cornerRadius = 18.0;
-    icon.clipsToBounds = YES;
     [overlay addSubview:icon];
-
-    UILabel *label = [UILabel new];
-    label.translatesAutoresizingMaskIntoConstraints = NO;
-    label.text = @"ChatGPT";
-    label.textColor = UIColor.labelColor;
-    label.font = [UIFont systemFontOfSize:18.0 weight:UIFontWeightSemibold];
-    label.textAlignment = NSTextAlignmentCenter;
-    [overlay addSubview:label];
-
-    UIActivityIndicatorView *spinner =
-      [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
-    spinner.translatesAutoresizingMaskIntoConstraints = NO;
-    spinner.color = UIColor.secondaryLabelColor;
-    [spinner startAnimating];
-    [overlay addSubview:spinner];
-    self.spinner = spinner;
 
     [root addSubview:overlay];
     self.overlay = overlay;
 
     [NSLayoutConstraint activateConstraints:@[
         [icon.centerXAnchor constraintEqualToAnchor:overlay.centerXAnchor],
-        [icon.centerYAnchor constraintEqualToAnchor:overlay.centerYAnchor constant:-42.0],
-        [icon.widthAnchor constraintEqualToConstant:72.0],
-        [icon.heightAnchor constraintEqualToConstant:72.0],
-
-        [label.topAnchor constraintEqualToAnchor:icon.bottomAnchor constant:16.0],
-        [label.centerXAnchor constraintEqualToAnchor:overlay.centerXAnchor],
-
-        [spinner.topAnchor constraintEqualToAnchor:label.bottomAnchor constant:18.0],
-        [spinner.centerXAnchor constraintEqualToAnchor:overlay.centerXAnchor],
+        [icon.centerYAnchor constraintEqualToAnchor:overlay.centerYAnchor],
+        [icon.widthAnchor constraintEqualToConstant:104.0],
+        [icon.heightAnchor constraintEqualToConstant:104.0],
     ]];
+
+    CABasicAnimation *spin = [CABasicAnimation animationWithKeyPath:@"transform.rotation.z"];
+    spin.fromValue = @0.0;
+    spin.toValue = @(6.283185307179586);
+    spin.duration = 1.25;
+    spin.repeatCount = HUGE_VALF;
+    spin.removedOnCompletion = NO;
+    [icon.layer addAnimation:spin forKey:@"ChatGPTStartupIconSpin"];
 
     NSLog(@"[ChatGPTGecko] Native startup loader shown");
     [self scheduleReadyCheck];
@@ -352,7 +329,6 @@ static UIImage *CGStartupIcon(void) {
     UIView *overlay = self.overlay;
     if (!overlay) return;
 
-    [self.spinner stopAnimating];
     void (^cleanup)(void) = ^{
         [overlay removeFromSuperview];
         self.overlay = nil;
