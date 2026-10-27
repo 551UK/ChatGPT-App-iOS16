@@ -116,9 +116,10 @@ jobs:
           grep -Fq 'renderedBackgroundColor' web/chatgpt-app-shell.js
           grep -Fq 'cg-ios16-topbar-cutoff' web/chatgpt-app-shell.js
           grep -Fq 'rowBottom' web/chatgpt-app-shell.js
-          grep -Fq 'spansFullScreen' web/chatgpt-app-shell.js
-          grep -Fq 'reachesLeftEdge' web/chatgpt-app-shell.js
-          grep -Fq 'reachesRightEdge' web/chatgpt-app-shell.js
+          grep -Fq 'visibleTopControls' web/chatgpt-app-shell.js
+          grep -Fq 'eligibleRows' web/chatgpt-app-shell.js
+          grep -Fq 'aFull' web/chatgpt-app-shell.js
+          grep -Fq 'bFull' web/chatgpt-app-shell.js
           grep -Fq 'stay on web' web/chatgpt-app-shell.js
           grep -Fq 'open the app' web/chatgpt-app-shell.js
           grep -Fq 'MutationObserver' web/chatgpt-app-shell.js
