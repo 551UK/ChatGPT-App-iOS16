@@ -13,9 +13,7 @@ static NSString *const CGHomeURL = @"https://chatgpt.com/";
 static IMP CGOriginalControllerLayout = NULL;
 static IMP CGOriginalControllerAppear = NULL;
 static IMP CGOriginalUIViewSetHidden = NULL;
-static IMP CGOriginalUIViewSetFrame = NULL;
 static IMP CGOriginalUIViewBounds = NULL;
-static IMP CGOriginalUIViewSafeAreaInsets = NULL;
 static BOOL CGHooksInstalled = NO;
 static const void *CGConstraintsAdjustedKey = &CGConstraintsAdjustedKey;
 static const void *CGLayoutPendingKey = &CGLayoutPendingKey;
@@ -257,33 +255,11 @@ static BOOL CGIsBrowserController(id controller) {
 }
 
 // Keep browser navigation UI suppressed even when Reynard's Swift layout
-// updates set .isHidden=false later. class_addMethod prevents accidentally
-// replacing UIView's inherited implementation for every view in the process.
+// tries to show it again. The replacement is scoped to Reynard subclasses.
 static void CGAlwaysHideChrome(UIView *self, SEL cmd, BOOL requested) {
     if (CGOriginalUIViewSetHidden) {
         ((void (*)(id,SEL,BOOL))CGOriginalUIViewSetHidden)(self, cmd, CGIsOurApp() ? YES : requested);
     }
-}
-
-static UIEdgeInsets CGChromeSafeAreaInsets(UIView *self, SEL cmd) {
-    UIEdgeInsets insets = UIEdgeInsetsZero;
-    if (CGOriginalUIViewSafeAreaInsets) {
-        insets = ((UIEdgeInsets (*)(id,SEL))CGOriginalUIViewSafeAreaInsets)(self, cmd);
-    }
-    // BrowserChrome.minimizedToolbarHeight(phone) adds 24pt to this value.
-    // The chrome is completely hidden in this app, so -24 makes the hidden
-    // minimized toolbar report zero height to Reynard/Gecko.
-    insets.bottom = -24.0;
-    return insets;
-}
-
-static void CGZeroBottomToolbarFrame(UIView *self, SEL cmd, CGRect frame) {
-    if (!CGOriginalUIViewSetFrame) return;
-    // ToolbarController asks for BottomToolbar.bounds.height to configure
-    // Gecko's dynamic toolbar. Keep the hidden toolbar at zero visual height.
-    frame.origin.y = CGRectGetMaxY(frame);
-    frame.size.height = 0;
-    ((void (*)(id,SEL,CGRect))CGOriginalUIViewSetFrame)(self, cmd, frame);
 }
 
 static CGRect CGBottomToolbarBounds(UIView *self, SEL cmd) {
@@ -301,36 +277,31 @@ static CGRect CGBottomToolbarBounds(UIView *self, SEL cmd) {
 static void CGInstallChromeSuppression(void) {
     static BOOL installed = NO;
     if (installed) return;
+
     Class browserChrome = NSClassFromString(@"Reynard.BrowserChrome");
     Class bottomToolbar = NSClassFromString(@"Reynard.BottomToolbar");
     Class overview = NSClassFromString(@"Reynard.TabOverview");
     if (!browserChrome || !bottomToolbar || !overview) return;
 
     Method hiddenMethod = class_getInstanceMethod(UIView.class, @selector(setHidden:));
-    Method frameMethod = class_getInstanceMethod(UIView.class, @selector(setFrame:));
     Method boundsMethod = class_getInstanceMethod(UIView.class, @selector(bounds));
-    Method insetMethod = class_getInstanceMethod(UIView.class, @selector(safeAreaInsets));
 
     CGOriginalUIViewSetHidden = method_getImplementation(hiddenMethod);
-    CGOriginalUIViewSetFrame = method_getImplementation(frameMethod);
     CGOriginalUIViewBounds = method_getImplementation(boundsMethod);
-    CGOriginalUIViewSafeAreaInsets = method_getImplementation(insetMethod);
 
-    // class_replaceMethod is deliberate here. If a Swift subclass already has
-    // a local implementation, replace only that subclass method; otherwise it
-    // adds an override without touching UIView globally.
+    // Keep Reynard's browser surfaces permanently hidden in this app.
     class_replaceMethod(browserChrome, @selector(setHidden:), (IMP)CGAlwaysHideChrome,
                         method_getTypeEncoding(hiddenMethod));
     class_replaceMethod(overview, @selector(setHidden:), (IMP)CGAlwaysHideChrome,
                         method_getTypeEncoding(hiddenMethod));
-    class_replaceMethod(browserChrome, @selector(safeAreaInsets), (IMP)CGChromeSafeAreaInsets,
-                        method_getTypeEncoding(insetMethod));
-    class_replaceMethod(bottomToolbar, @selector(setFrame:), (IMP)CGZeroBottomToolbarFrame,
-                        method_getTypeEncoding(frameMethod));
+
+    // This is the actual viewport-gap fix: ToolbarController reads the hidden
+    // BottomToolbar's bounds to calculate Gecko's dynamic-toolbar geometry.
+    // Report zero height so no invisible browser strip is reserved.
     class_replaceMethod(bottomToolbar, @selector(bounds), (IMP)CGBottomToolbarBounds,
                         method_getTypeEncoding(boundsMethod));
 
-    NSLog(@"[ChatGPTGecko] Chrome suppression + zero toolbar geometry installed");
+    NSLog(@"[ChatGPTGecko] Chrome hidden; bottom toolbar viewport height forced to zero");
     installed = YES;
 }
 
