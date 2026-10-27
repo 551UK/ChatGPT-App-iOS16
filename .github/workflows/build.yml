@@ -2,7 +2,7 @@ name: Build ChatGPT App (iOS 16)
 
 on:
   push:
-    branches: [suppress-now-playing-at-source-v52]
+    branches: [clean-media-rollback-v53]
   workflow_dispatch:
 
 concurrency:
@@ -44,11 +44,6 @@ jobs:
           test -s src/ChatGPTContextMenu.m
           grep -Fq 'CGChatGPTContextMenuFactory' src/ChatGPTContextMenu.m
           grep -Fq 'ChatGPTContextMenu.m' scripts/package.sh
-          test -s src/ChatGPTMediaTransportGuard.m
-          grep -Fq 'CGRejectNowPlayingInfo' src/ChatGPTMediaTransportGuard.m
-          grep -Fq 'CGRejectRemoteCommandEnabled' src/ChatGPTMediaTransportGuard.m
-          grep -Fq 'ChatGPTMediaTransportGuard.m' scripts/package.sh
-          grep -Fq -- '-framework MediaPlayer' scripts/package.sh
           echo "PASS: native ChatGPT shell is exact 0.19.0-22 and working Settings/data code matches current main"
 
       - name: Package Gecko-based ChatGPT app
@@ -57,7 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-52_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-53_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/ChatGPTPrefs'
@@ -82,10 +77,6 @@ jobs:
           assert app["CFBundleIdentifier"] == "com.551uk.chatgptios16"
           assert app["CFBundleDisplayName"] == "ChatGPT"
           assert "CFBundleURLTypes" not in app, "ChatGPT must never claim Reynard/http/https URL schemes"
-          background_modes = app.get("UIBackgroundModes", [])
-          assert "audio" not in background_modes, "ChatGPT must not declare background audio mode"
-          assert "fetch" in background_modes
-          assert "processing" in background_modes
           assert helper["CFBundleIdentifier"] == "com.551uk.chatgptios16.Helper"
           assert "NSMicrophoneUsageDescription" in app
           assert "NSMicrophoneUsageDescription" in helper
@@ -224,9 +215,10 @@ jobs:
           grep -Fq 'const isHomeRoute' web/chatgpt-app-shell.js
           grep -Fq 'window.location.pathname === "/"' web/chatgpt-app-shell.js
           test ! -e src/ChatGPTNowPlayingFix.m
+          test ! -e src/ChatGPTMediaTransportGuard.m
+          ! grep -Fq 'ChatGPTMediaTransportGuard.m' scripts/package.sh
+          ! grep -Fq 'mode != "audio"' scripts/rebrand.py
           ! grep -Fq 'ChatGPTNowPlayingFix.m' scripts/package.sh
-          grep -Fq 'background_modes = d.get("UIBackgroundModes")' scripts/rebrand.py
-          grep -Fq 'mode != "audio"' scripts/rebrand.py
           grep -Fq 'if (isHomeRoute || hasHomeSwitcher)' web/chatgpt-app-shell.js
           grep -Fq 'removeProperty("--cg-ios16-topbar-bg")' web/chatgpt-app-shell.js
           grep -Fq 'eligibleRows' web/chatgpt-app-shell.js
@@ -235,6 +227,6 @@ jobs:
           # The actual Settings loading and icon rendering must still be device-tested.
       - uses: actions/upload-artifact@v4
         with:
-          name: ChatGPT-0.19.0-52-MEDIA-TRANSPORT-GUARD
-          path: dist/com.551uk.chatgptgecko_0.19.0-52_iphoneos-arm64.deb
+          name: ChatGPT-0.19.0-53-CLEAN-MEDIA-ROLLBACK
+          path: dist/com.551uk.chatgptgecko_0.19.0-53_iphoneos-arm64.deb
           if-no-files-found: error
