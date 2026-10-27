@@ -119,9 +119,6 @@
       }
       if (!surface) continue;
 
-      // Hide the prompt synchronously in the same mutation turn in which
-      // ChatGPT inserts it. MutationObserver callbacks run before the next
-      // paint, so the app-only promotion never needs to flash on screen.
       let blocker = surface;
       for (let depth = 0, parent = surface.parentElement;
            parent && depth < 5 && parent !== document.body && parent !== document.documentElement;
@@ -146,9 +143,6 @@
       blocker.dataset.cgIos16Hidden = "1";
       blocker.classList.add("cg-ios16-hide");
 
-      // Let ChatGPT perform its own normal dismissal bookkeeping while the
-      // prompt is already invisible. This is deliberately scoped to this
-      // exact app-promotion prompt; other dialogs are untouched.
       try {
         button.click();
       } catch (_) {
@@ -162,98 +156,6 @@
     }
 
     return false;
-  }
-
-  let keyboardAdjustedElement = null;
-
-  function clearKeyboardAdjustment() {
-    if (!keyboardAdjustedElement) return;
-    keyboardAdjustedElement.style.removeProperty("translate");
-    keyboardAdjustedElement.removeAttribute("data-cg-ios16-keyboard-adjusted");
-    keyboardAdjustedElement = null;
-  }
-
-  function isMessageEditor(element) {
-    if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
-    return element.matches(
-      "textarea, [contenteditable='true'], input:not([type]), input[type='text'], input[type='search']"
-    );
-  }
-
-  function findMessageBar(editor, visibleBottom) {
-    let node = editor;
-    let candidate = null;
-
-    for (let depth = 0; node && depth < 9; depth++, node = node.parentElement) {
-      if (node === document.body || node === document.documentElement) break;
-      const rect = node.getBoundingClientRect();
-      const wideEnough = rect.width >= innerWidth * 0.58;
-      const barSized = rect.height >= 38 && rect.height <= 150;
-      const nearKeyboard = rect.bottom >= visibleBottom * 0.55;
-
-      if (wideEnough && barSized && nearKeyboard) {
-        // Keep walking outward while the ancestor is still bar-sized. This
-        // picks up the + / microphone controls with the text field instead of
-        // shifting just the editable element itself.
-        candidate = node;
-      } else if (candidate && rect.height > 190) {
-        break;
-      }
-    }
-
-    return candidate;
-  }
-
-  function removeKeyboardGap() {
-    const viewport = window.visualViewport;
-    const editor = document.activeElement;
-
-    if (!viewport || !isMessageEditor(editor)) {
-      clearKeyboardAdjustment();
-      return;
-    }
-
-    // Only apply while iOS has substantially reduced the visual viewport for
-    // its on-screen keyboard. This avoids touching the normal resting composer.
-    const screenHeight = Math.max(screen.width || 0, screen.height || 0);
-    const keyboardVisible = screenHeight > 0 && viewport.height < screenHeight * 0.82;
-    if (!keyboardVisible) {
-      clearKeyboardAdjustment();
-      return;
-    }
-
-    const visibleBottom = viewport.offsetTop + viewport.height;
-    const bar = findMessageBar(editor, visibleBottom);
-    if (!bar) {
-      clearKeyboardAdjustment();
-      return;
-    }
-
-    const rect = bar.getBoundingClientRect();
-    const gap = visibleBottom - rect.bottom;
-
-    // The unwanted mobile-web spacer in our Gecko shell is roughly a
-    // keyboard-safe-area sized gap. Measure it instead of hard-coding a device
-    // value, but refuse extreme values so a changed ChatGPT layout cannot move
-    // the composer across the page.
-    if (gap < 8 || gap > 220) {
-      clearKeyboardAdjustment();
-      return;
-    }
-
-    if (keyboardAdjustedElement && keyboardAdjustedElement !== bar) {
-      clearKeyboardAdjustment();
-    }
-
-    keyboardAdjustedElement = bar;
-    bar.dataset.cgIos16KeyboardAdjusted = "1";
-    bar.style.setProperty("translate", `0 ${Math.round(gap)}px`, "important");
-  }
-
-  let keyboardFrame = 0;
-  function scheduleKeyboardGapRemoval() {
-    cancelAnimationFrame(keyboardFrame);
-    keyboardFrame = requestAnimationFrame(removeKeyboardGap);
   }
 
   let revealed = false;
@@ -273,7 +175,6 @@
     dismissAppPromotion();
     hideSuggestion();
     hideDisclaimers();
-    scheduleKeyboardGapRemoval();
     if (document.body) revealCleanPage();
   }
 
@@ -291,7 +192,7 @@
   }
 
   const observer = new MutationObserver(() => {
-    // Do this synchronously so the app-promotion modal is hidden before paint.
+    // Hide this exact mobile-web app promotion before the next paint.
     dismissAppPromotion();
     schedule();
   });
@@ -300,17 +201,6 @@
     subtree: true,
     characterData: true
   });
-  window.addEventListener("resize", () => {
-    schedule();
-    scheduleKeyboardGapRemoval();
-  }, { passive: true });
+  window.addEventListener("resize", schedule, { passive: true });
   window.addEventListener("popstate", schedule);
-  document.addEventListener("focusin", scheduleKeyboardGapRemoval, true);
-  document.addEventListener("focusout", () => {
-    requestAnimationFrame(clearKeyboardAdjustment);
-  }, true);
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", scheduleKeyboardGapRemoval, { passive: true });
-    window.visualViewport.addEventListener("scroll", scheduleKeyboardGapRemoval, { passive: true });
-  }
 })();
