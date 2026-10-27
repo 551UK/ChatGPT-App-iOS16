@@ -19,7 +19,7 @@
   const styleText = [
     "html[data-cg-ios16-preparing='1'] { visibility: hidden !important; }",
     ".cg-ios16-hide { display: none !important; }",
-    ".cg-ios16-solid-topbar { background: var(--main-surface-primary, #fff) !important; background-color: var(--main-surface-primary, #fff) !important; opacity: 1 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }",
+    ".cg-ios16-solid-topbar { background-color: transparent !important; background-image: linear-gradient(to bottom, var(--cg-ios16-topbar-bg, #eeeef0) 0, var(--cg-ios16-topbar-bg, #eeeef0) var(--cg-ios16-topbar-cutoff, 0px), transparent var(--cg-ios16-topbar-cutoff, 0px), transparent 100%) !important; opacity: 1 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }",
   ].join("\n");
 
   function installStyle() {
@@ -34,6 +34,53 @@
     return (element && element.textContent ? element.textContent : "")
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  function parseComputedColor(value) {
+    const match = String(value || "").match(
+      /rgba?\(\s*([\d.]+)[, ]+\s*([\d.]+)[, ]+\s*([\d.]+)(?:\s*[,\/]\s*([\d.]+))?\s*\)/i
+    );
+    if (!match) return null;
+    return {
+      r: Number(match[1]),
+      g: Number(match[2]),
+      b: Number(match[3]),
+      a: match[4] == null ? 1 : Number(match[4])
+    };
+  }
+
+  function compositeColor(foreground, background) {
+    const outA = foreground.a + background.a * (1 - foreground.a);
+    if (outA <= 0) return { r: 0, g: 0, b: 0, a: 0 };
+    return {
+      r: (foreground.r * foreground.a +
+          background.r * background.a * (1 - foreground.a)) / outA,
+      g: (foreground.g * foreground.a +
+          background.g * background.a * (1 - foreground.a)) / outA,
+      b: (foreground.b * foreground.a +
+          background.b * background.a * (1 - foreground.a)) / outA,
+      a: outA
+    };
+  }
+
+  function renderedBackgroundColor(element) {
+    let accumulated = { r: 0, g: 0, b: 0, a: 0 };
+    let node = element;
+
+    for (let depth = 0; node && depth < 12; depth++, node = node.parentElement) {
+      const color = parseComputedColor(getComputedStyle(node).backgroundColor);
+      if (color && color.a > 0) {
+        accumulated = compositeColor(accumulated, color);
+        if (accumulated.a >= 0.999) break;
+      }
+      if (node === document.body || node === document.documentElement) break;
+    }
+
+    if (accumulated.a < 0.999) {
+      accumulated = compositeColor(accumulated, { r: 255, g: 255, b: 255, a: 1 });
+    }
+
+    return `rgb(${Math.round(accumulated.r)}, ${Math.round(accumulated.g)}, ${Math.round(accumulated.b)})`;
   }
 
   function stabilizeTopActionBar() {
@@ -88,6 +135,38 @@
     for (const old of document.querySelectorAll(".cg-ios16-solid-topbar")) {
       if (old !== best) old.classList.remove("cg-ios16-solid-topbar");
     }
+
+    const bestRect = best.getBoundingClientRect();
+    const shareRect = shareControl.getBoundingClientRect();
+
+    // Keep only controls that belong to the same visible top row as Share.
+    // The background ends at the exact bottom edge of that row instead of
+    // following the taller header/container box.
+    const rowControls = Array.from(best.querySelectorAll(
+      "button, [role='button'], a"
+    )).filter((element) => {
+      const rect = element.getBoundingClientRect();
+      if (rect.width < 20 || rect.height < 20) return false;
+      const centerY = rect.top + rect.height / 2;
+      const shareCenterY = shareRect.top + shareRect.height / 2;
+      return Math.abs(centerY - shareCenterY) <= 18;
+    });
+
+    const rowBottom = rowControls.reduce(
+      (bottom, element) => Math.max(bottom, element.getBoundingClientRect().bottom),
+      shareRect.bottom
+    );
+
+    const cutoff = Math.max(
+      0,
+      Math.min(bestRect.height, rowBottom - bestRect.top)
+    );
+
+    // Use the actual rendered/composited colour of the Share button. This
+    // preserves an exact visual match even if ChatGPT implements the button
+    // with a translucent colour over another surface.
+    best.style.setProperty("--cg-ios16-topbar-bg", renderedBackgroundColor(shareControl));
+    best.style.setProperty("--cg-ios16-topbar-cutoff", `${cutoff}px`);
 
     best.classList.add("cg-ios16-solid-topbar");
     best.dataset.cgIos16SolidTopbar = "1";
