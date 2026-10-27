@@ -85,6 +85,14 @@
   }
 
   function stabilizeTopActionBar() {
+    // The root route is the ChatGPT home page. Know this immediately from the
+    // URL instead of waiting for the Chat/Work segmented control to render.
+    // That prevents a partially loaded home header from being mistaken for a
+    // chat header and briefly receiving the custom dark/solid top-bar colour.
+    const isHomeRoute =
+      window.location.pathname === "/" ||
+      window.location.pathname === "";
+
     const allControls = Array.from(document.querySelectorAll(
       "button, [role='button'], a"
     ));
@@ -170,7 +178,7 @@
       rowLabels.some(({ text }) => text === "work");
 
     let scaleControls = rowControls;
-    if (hasHomeSwitcher) {
+    if (isHomeRoute || hasHomeSwitcher) {
       scaleControls = rowControls.filter((element) => {
         const label = normalizedText(element).toLowerCase();
         if (label === "chat" || label === "work") return false;
@@ -192,11 +200,12 @@
       element.classList.add("cg-ios16-topbar-control");
     }
 
-    // Home page: keep ChatGPT's native white header completely untouched.
+    // Home page: keep ChatGPT's native white header completely untouched,
+    // including the partial loading state before Chat/Work exists in the DOM.
     // The left/right icon controls above are still enlarged to 1.30x, but do
     // not sample a transparent icon as a background colour and do not apply
     // the custom solid-topbar treatment here.
-    if (hasHomeSwitcher) {
+    if (isHomeRoute || hasHomeSwitcher) {
       for (const old of document.querySelectorAll(".cg-ios16-solid-topbar")) {
         old.classList.remove("cg-ios16-solid-topbar");
         old.style.removeProperty("--cg-ios16-topbar-bg");
