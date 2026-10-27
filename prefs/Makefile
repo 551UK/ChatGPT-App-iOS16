@@ -6,7 +6,7 @@ INSTALL_TARGET_PROCESSES = Preferences
 include $(THEOS)/makefiles/common.mk
 
 BUNDLE_NAME = ChatGPTPrefs
-ChatGPTPrefs_FILES = ChatGPTPrefs.m
+ChatGPTPrefs_FILES = ChatGPTPrefs.m CGPClearDataController.m
 ChatGPTPrefs_FRAMEWORKS = Foundation UIKit CoreFoundation QuartzCore
 ChatGPTPrefs_LIBRARIES = sqlite3
 ChatGPTPrefs_PRIVATE_FRAMEWORKS = Preferences
