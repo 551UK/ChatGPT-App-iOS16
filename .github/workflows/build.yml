@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-20_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-21_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
@@ -64,8 +64,9 @@ jobs:
           grep -Fq 'CGToolbarRelayoutKey' src/ChatGPTShell.m
           grep -Fq 'ChatGPTNativeStartupLoader' src/ChatGPTShell.m
           grep -Fq 'ChatGPTStartupIconSpin' src/ChatGPTShell.m
-          grep -Fq 'CGInstallFocusedInputRelocationSuppression' src/ChatGPTShell.m
-          grep -Fq 'CGKeyboardVisible' src/ChatGPTShell.m
+          grep -Fq 'Reynard.ActionBar' src/ChatGPTShell.m
+          ! grep -Fq 'CGInstallFocusedInputRelocationSuppression' src/ChatGPTShell.m
+          ! grep -Fq 'CGKeyboardVisible' src/ChatGPTShell.m
           grep -Fq 'StartupLoaderIcon.png' src/ChatGPTShell.m
           ! grep -Fq 'UIActivityIndicatorView' src/ChatGPTShell.m
           ! grep -Fq 'label.text = @"ChatGPT"' src/ChatGPTShell.m
@@ -104,7 +105,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-20. Restores the exact 0.18 web composer presentation, keeps the mobile-web app-promotion hidden before paint, and removes the keyboard gap at the native Reynard layer by suppressing only its extra upward focused-input ContentView translation while the iOS keyboard is visible. Existing startup loader, microphone permissions, no-flash cleanup, full-screen layout, viewport fix and swipe-right Back remain unchanged. Rootless Dopamine DEB plus test IPA."
+          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-21. Restores the normal Reynard focused-input relocation so the composer remains visible above the keyboard, but forces Reynard's hidden keyboard-dismissal ActionBar to stay hidden so its height is no longer reserved as a blank gap. Keeps the mobile-web app-promotion hidden before paint and preserves the 0.18 web composer presentation. Existing startup loader, microphone permissions, full-screen layout, viewport fix and swipe-right Back remain unchanged. Rootless Dopamine DEB plus test IPA."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
