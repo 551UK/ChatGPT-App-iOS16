@@ -11,15 +11,15 @@ Experimental **ChatGPT app** using the complete mobile website at https://chatgp
 
 ## Installation
 
-Download the `com.551uk.chatgptgecko_0.19.0-14_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
+Download the `com.551uk.chatgptgecko_0.19.0-15_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
 
 ## App-style navigation and microphone
 
 The real ChatGPT website remains the conversation engine because it already provides current conversations, attachments, search and account features. Reynard's URL bar, toolbar, tab overview, share controls and browser branding are hidden. There are **no visible native Back/Forward buttons** and no Forward action. The page fills the screen to the device bottom. Back navigation is gesture-only: swipe right from the left edge to trigger Gecko's history Back.
 
-A Gecko content script cleans the website presentation without replacing ChatGPT's functionality. It now runs at **document start**: the page is kept hidden for the initial paint, the **What can you do?** suggestion and footer/disclaimer are removed, the **Ask ChatGPT** composer is positioned, and only then is the finished page revealed. The composer is pinned to **bottom: 0** because the native wrapper already handles the device safe area; this avoids applying the bottom inset twice on active-chat pages. This avoids the visible show-then-hide flash on launch. A short fail-safe always reveals the page if ChatGPT changes its markup.
+A Gecko content script cleans the website presentation without replacing ChatGPT's functionality. It now runs at **document start**: the page is kept hidden for the initial paint, the **What can you do?** suggestion and footer/disclaimer are removed, the **Ask ChatGPT** composer is positioned, and only then is the finished page revealed. The composer uses the normal **iOS bottom safe-area inset**. The old large gap was not this spacing; it came from Reynard's hidden browser toolbar shortening Gecko's viewport. This avoids the visible show-then-hide flash on launch. A short fail-safe always reveals the page if ChatGPT changes its markup.
 
-For this dedicated ChatGPT wrapper, Reynard's **chatgpt.com microphone site permission is pre-allowed** and the app requests iOS microphone authorization when needed. The microphone flow is left unchanged from the working build. Reynard's invisible toolbar geometry is zeroed at the **viewport source**: dynamic toolbar resizing is disabled, the hidden BottomToolbar reports zero bounds/height, and one relayout recalculates Gecko's content offsets. This prevents the active-chat page from reserving the old browser-toolbar strip underneath the composer.
+For this dedicated ChatGPT wrapper, Reynard's **chatgpt.com microphone site permission is pre-allowed** and the app requests iOS microphone authorization when needed. The microphone flow is unchanged from the working build. The gap fix has been cleaned down to the parts that actually solved it: Reynard dynamic-toolbar resizing is disabled, the hidden BottomToolbar reports zero **bounds height**, and one relayout recalculates Gecko's content offsets. Earlier safe-area spoofing and forced-toolbar-frame experiments were removed.
 
 ## Building
 
