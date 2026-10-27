@@ -168,7 +168,7 @@ static void CGSetPreference(NSString *key, id value) {
 
     UILabel *tagline = [UILabel new];
     tagline.translatesAutoresizingMaskIntoConstraints = NO;
-    tagline.text = @"Modern ChatGPT for iOS 16.";
+    tagline.text = @"Modern ChatGPT. Built for iOS 16.";
     tagline.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightMedium];
     tagline.textColor = [UIColor colorWithWhite:1.0 alpha:0.70];
     [hero addSubview:tagline];
@@ -213,7 +213,7 @@ static void CGSetPreference(NSString *key, id value) {
 
     PSSpecifier *dataGroup = [PSSpecifier groupSpecifierWithName:@"BROWSING DATA"];
     [dataGroup setProperty:
-        @"These controls only manage local browser history and cache. Your ChatGPT login, account conversations, cookies and website data are not cleared. Changes are applied the next time ChatGPT opens."
+        @"Clears only local browser data. Your ChatGPT login and conversations are preserved. Changes apply the next time ChatGPT opens."
                    forKey:@"footerText"];
     [items addObject:dataGroup];
 
