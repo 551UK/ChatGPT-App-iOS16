@@ -230,7 +230,7 @@ static void CGEnsureStartupTab(void) {
     [controller.view addGestureRecognizer:gesture];
     self.backGesture = gesture;
 
-    NSLog(@"[ChatGPTGecko] Full-screen swipe-right back navigation installed");
+    NSLog(@"[ChatGPTGecko] Full-screen swipe-back navigation installed");
 }
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
@@ -336,6 +336,8 @@ static void CGApplyAppLayout(UIViewController *controller) {
         [navigation installInController:controller];
     }
 
+    // Full-screen ChatGPT: the Gecko content reaches the device bottom.
+    // No native bar, URL field, forward button or visible browser chrome.
     NSArray<NSLayoutConstraint *> *ours =
       objc_getAssociatedObject(content, CGConstraintsAdjustedKey);
     if (!ours) {
@@ -364,7 +366,6 @@ static void CGApplyAppLayout(UIViewController *controller) {
         overview.hidden = YES;
         overview.userInteractionEnabled = NO;
     }
-
     [root bringSubviewToFront:content];
 }
 
