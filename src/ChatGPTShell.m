@@ -259,6 +259,7 @@ static UIImage *CGStartupIcon(void) {
 @property(nonatomic,weak) UIViewController *owner;
 @property(nonatomic,strong) UIView *overlay;
 @property(nonatomic,strong) NSDate *startedAt;
+@property(nonatomic,strong) NSDate *pageReadySince;
 @property(nonatomic,assign) BOOL finished;
 - (void)installInController:(UIViewController *)controller;
 @end
@@ -314,9 +315,19 @@ static UIImage *CGStartupIcon(void) {
             if (!strongSelf || strongSelf.finished) return;
 
             NSTimeInterval elapsed = -[strongSelf.startedAt timeIntervalSinceNow];
-            // Give the document-start cleanup a fraction of a second after the
-            // Gecko title update so the loader never reveals the old web UI.
-            if ((pageReady && elapsed >= 0.9) || elapsed >= 8.0) {
+            // A Gecko title update precedes the final DOM presentation/React
+            // hydration. The previous loader vanished immediately when the
+            // title became ready, exposing a transient page-hide/repaint flash.
+            // Require uninterrupted readiness before revealing the real page.
+            if (pageReady) {
+                if (!strongSelf.pageReadySince) strongSelf.pageReadySince = NSDate.date;
+            } else {
+                strongSelf.pageReadySince = nil;
+            }
+            NSTimeInterval stableFor = strongSelf.pageReadySince
+                ? -[strongSelf.pageReadySince timeIntervalSinceNow] : 0.0;
+            if ((pageReady && stableFor >= 1.15 && elapsed >= 1.6) ||
+                elapsed >= 10.0) {
                 [strongSelf finishAnimated:YES];
             } else {
                 [strongSelf scheduleReadyCheck];
