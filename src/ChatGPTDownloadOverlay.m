@@ -470,7 +470,7 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
 
     UIImageSymbolConfiguration *config =
         [UIImageSymbolConfiguration configurationWithPointSize:15.0 weight:UIImageSymbolWeightSemibold];
-    [self.actionButton setImage:[UIImage systemImageNamed:@"square.and.arrow.up" withConfiguration:config] forState:UIControlStateNormal];
+    [self.actionButton setImage:[UIImage systemImageNamed:@"xmark" withConfiguration:config] forState:UIControlStateNormal];
     self.accessibilityLabel = [NSString stringWithFormat:@"Downloaded, %@", self.fileLabel.text];
     [self applyMode:CGDownloadPillModeCompleted animated:YES];
 }
@@ -672,35 +672,19 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
     (void)sender;
     if (self.pill.mode == CGDownloadPillModeCompleted && self.lastCompletedURL) {
         [self presentShareForURL:self.lastCompletedURL attempt:0];
-        return;
-    }
-
-    // While downloading the pill is informational and stays on the current
-    // ChatGPT page. Only the compact post-download button opens the manager.
-    if (self.pill.mode == CGDownloadPillModeCompact) {
-        [self openDownloadsManager];
     }
 }
 
 - (void)handleActionTap:(id)sender {
     (void)sender;
-    if (self.pill.mode == CGDownloadPillModeCompleted && self.lastCompletedURL) {
-        [self presentShareForURL:self.lastCompletedURL attempt:0];
-        return;
-    }
 
     if (self.pill.mode == CGDownloadPillModeDownloading) {
-        // Match the reference UI's close affordance without pretending to
-        // cancel the real transfer. The download continues in Reynard and the
-        // completed file will still be handed off normally.
         self.dismissedActivePill = YES;
-        [self.pill hidePill];
-        return;
     }
 
-    if (self.pill.mode == CGDownloadPillModeCompact) {
-        [self openDownloadsManager];
-    }
+    // This button is deliberately only a close affordance, matching the
+    // reference screenshot. It does not cancel the transfer or invoke Share.
+    [self.pill hidePill];
 }
 
 @end
