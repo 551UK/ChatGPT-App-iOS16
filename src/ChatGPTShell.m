@@ -7,58 +7,17 @@
 #import <sqlite3.h>
 #import <objc/message.h>
 #import <AVFoundation/AVFoundation.h>
-#import <dlfcn.h>
 
 static NSString *const CGBundleID = @"com.551uk.chatgptios16";
 static NSString *const CGHomeURL = @"https://chatgpt.com/";
 static IMP CGOriginalControllerLayout = NULL;
 static IMP CGOriginalControllerAppear = NULL;
 static IMP CGOriginalUIViewSetHidden = NULL;
+static IMP CGOriginalUIViewSetFrame = NULL;
+static IMP CGOriginalUIViewSafeAreaInsets = NULL;
 static BOOL CGHooksInstalled = NO;
 static const void *CGConstraintsAdjustedKey = &CGConstraintsAdjustedKey;
 static const void *CGLayoutPendingKey = &CGLayoutPendingKey;
-
-typedef void (*CGBridgeViewFunction)(void *);
-static void *CGBridgeHandle = NULL;
-static CGBridgeViewFunction CGFixViewportFunction = NULL;
-static CGBridgeViewFunction CGLoadHomeFunction = NULL;
-static CGBridgeViewFunction CGGoBackFunction = NULL;
-
-static void CGLoadBridge(void) {
-    if (CGBridgeHandle) return;
-    NSString *path = [[NSBundle mainBundle] pathForResource:@"ChatGPTBridge"
-                                                    ofType:@"dylib"
-                                               inDirectory:@"Frameworks"];
-    if (!path.length) {
-        NSLog(@"[ChatGPTGecko] Missing ChatGPTBridge.dylib");
-        return;
-    }
-    CGBridgeHandle = dlopen(path.UTF8String, RTLD_NOW | RTLD_LOCAL);
-    if (!CGBridgeHandle) {
-        NSLog(@"[ChatGPTGecko] Bridge load failed: %s", dlerror());
-        return;
-    }
-    CGFixViewportFunction = (CGBridgeViewFunction)dlsym(CGBridgeHandle, "CGFixGeckoViewport");
-    CGLoadHomeFunction = (CGBridgeViewFunction)dlsym(CGBridgeHandle, "CGLoadChatGPTHome");
-    CGGoBackFunction = (CGBridgeViewFunction)dlsym(CGBridgeHandle, "CGGoBackInGecko");
-}
-
-static void CGFixGeckoViewport(UIView *root) {
-    CGLoadBridge();
-    if (CGFixViewportFunction) CGFixViewportFunction((__bridge void *)root);
-}
-
-static void CGLoadChatGPTHome(UIView *root) {
-    CGLoadBridge();
-    if (CGLoadHomeFunction) CGLoadHomeFunction((__bridge void *)root);
-}
-
-static BOOL CGGoBackInGecko(UIView *root) {
-    CGLoadBridge();
-    if (!CGGoBackFunction) return NO;
-    CGGoBackFunction((__bridge void *)root);
-    return YES;
-}
 
 static BOOL CGIsOurApp(void) {
     return [[[NSBundle mainBundle] bundleIdentifier] isEqualToString:CGBundleID];
@@ -282,11 +241,9 @@ static BOOL CGIsVoiceURL(NSString *url) {
 - (void)returnFromVoice {
     UIViewController *owner = self.owner;
     if (!owner) return;
-    if (!CGGoBackInGecko(owner.view)) {
-        SEL back = NSSelectorFromString(@"goBackKeyCommand:");
-        if ([owner respondsToSelector:back]) {
-            ((void (*)(id,SEL,id))objc_msgSend)(owner, back, nil);
-        }
+    SEL back = NSSelectorFromString(@"goBackKeyCommand:");
+    if ([owner respondsToSelector:back]) {
+        ((void (*)(id,SEL,id))objc_msgSend)(owner, back, nil);
     }
     __weak UIViewController *weakOwner = owner;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
@@ -304,7 +261,10 @@ static BOOL CGIsVoiceURL(NSString *url) {
 - (void)newChat {
     UIViewController *owner = self.owner;
     if (!owner) return;
-    CGLoadChatGPTHome(owner.view);
+    SEL newTab = NSSelectorFromString(@"newTabKeyCommand:");
+    if ([owner respondsToSelector:newTab]) {
+        ((void (*)(id,SEL,id))objc_msgSend)(owner, newTab, nil);
+    }
 }
 
 - (void)voiceBackSwipe:(UIScreenEdgePanGestureRecognizer *)gesture {
@@ -401,18 +361,52 @@ static void CGAlwaysHideChrome(UIView *self, SEL cmd, BOOL requested) {
         ((void (*)(id,SEL,BOOL))CGOriginalUIViewSetHidden)(self, cmd, CGIsOurApp() ? YES : requested);
     }
 }
+
+static UIEdgeInsets CGChromeSafeAreaInsets(UIView *self, SEL cmd) {
+    UIEdgeInsets insets = UIEdgeInsetsZero;
+    if (CGOriginalUIViewSafeAreaInsets) {
+        insets = ((UIEdgeInsets (*)(id,SEL))CGOriginalUIViewSafeAreaInsets)(self, cmd);
+    }
+    // BrowserChrome.minimizedToolbarHeight(phone) adds 24pt to this value.
+    // The chrome is completely hidden in this app, so -24 makes the hidden
+    // minimized toolbar report zero height to Reynard/Gecko.
+    insets.bottom = -24.0;
+    return insets;
+}
+
+static void CGZeroBottomToolbarFrame(UIView *self, SEL cmd, CGRect frame) {
+    if (!CGOriginalUIViewSetFrame) return;
+    // ToolbarController asks for BottomToolbar.bounds.height to configure
+    // Gecko's dynamic toolbar. Keep the hidden toolbar at zero visual height.
+    frame.origin.y = CGRectGetMaxY(frame);
+    frame.size.height = 0;
+    ((void (*)(id,SEL,CGRect))CGOriginalUIViewSetFrame)(self, cmd, frame);
+}
+
 static void CGInstallChromeSuppression(void) {
     static BOOL installed = NO;
     if (installed) return;
     Class browserChrome = NSClassFromString(@"Reynard.BrowserChrome");
+    Class bottomToolbar = NSClassFromString(@"Reynard.BottomToolbar");
     Class overview = NSClassFromString(@"Reynard.TabOverview");
-    if (!browserChrome || !overview) return;
-    CGOriginalUIViewSetHidden = method_getImplementation(class_getInstanceMethod(UIView.class, @selector(setHidden:)));
-    BOOL a = class_addMethod(browserChrome, @selector(setHidden:), (IMP)CGAlwaysHideChrome, "v@:B");
-    BOOL b = class_addMethod(overview, @selector(setHidden:), (IMP)CGAlwaysHideChrome, "v@:B");
-    // If upstream adds its own setHidden: override, don't override unknown
-    // functionality; our appearance/layout enforcement still handles it.
-    NSLog(@"[ChatGPTGecko] Chrome hooks: chrome=%d tabs=%d", a, b);
+    if (!browserChrome || !bottomToolbar || !overview) return;
+    Method hiddenMethod = class_getInstanceMethod(UIView.class, @selector(setHidden:));
+    Method frameMethod = class_getInstanceMethod(UIView.class, @selector(setFrame:));
+    Method insetMethod = class_getInstanceMethod(UIView.class, @selector(safeAreaInsets));
+    CGOriginalUIViewSetHidden = method_getImplementation(hiddenMethod);
+    CGOriginalUIViewSetFrame = method_getImplementation(frameMethod);
+    CGOriginalUIViewSafeAreaInsets = method_getImplementation(insetMethod);
+    BOOL a = class_addMethod(browserChrome, @selector(setHidden:), (IMP)CGAlwaysHideChrome,
+                             method_getTypeEncoding(hiddenMethod));
+    BOOL b = class_addMethod(overview, @selector(setHidden:), (IMP)CGAlwaysHideChrome,
+                             method_getTypeEncoding(hiddenMethod));
+    BOOL c = class_addMethod(browserChrome, @selector(safeAreaInsets), (IMP)CGChromeSafeAreaInsets,
+                             method_getTypeEncoding(insetMethod));
+    BOOL d = class_addMethod(bottomToolbar, @selector(setFrame:), (IMP)CGZeroBottomToolbarFrame,
+                             method_getTypeEncoding(frameMethod));
+    // If upstream adds one of these overrides later, class_addMethod leaves it
+    // untouched instead of replacing unknown behavior.
+    NSLog(@"[ChatGPTGecko] Chrome hooks hidden=%d tabs=%d insets=%d bottomFrame=%d", a, b, c, d);
     installed = YES;
 }
 
@@ -470,11 +464,6 @@ static void CGApplyAppLayout(UIViewController *controller) {
         overview.userInteractionEnabled = NO;
     }
     [root bringSubviewToFront:content];
-    CGFixGeckoViewport(root);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.08 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        CGFixGeckoViewport(root);
-    });
     CGAppNavigation *navigation = objc_getAssociatedObject(controller, CGAppNavigationKey);
     if (!navigation) {
         navigation = [CGAppNavigation new];
