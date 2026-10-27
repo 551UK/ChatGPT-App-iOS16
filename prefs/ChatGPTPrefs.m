@@ -159,7 +159,7 @@ static void CGSetPreference(NSString *key, id value) {
 
     UILabel *heading = [UILabel new];
     heading.translatesAutoresizingMaskIntoConstraints = NO;
-    heading.text = @"ChatGPT iOS 16 & Below";
+    heading.text = @"ChatGPT";
     heading.font = [UIFont systemFontOfSize:22.0 weight:UIFontWeightBold];
     heading.textColor = UIColor.whiteColor;
     heading.adjustsFontSizeToFitWidth = YES;
