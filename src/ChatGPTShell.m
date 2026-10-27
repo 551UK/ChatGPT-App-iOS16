@@ -259,7 +259,6 @@ static UIImage *CGStartupIcon(void) {
 @property(nonatomic,weak) UIViewController *owner;
 @property(nonatomic,strong) UIView *overlay;
 @property(nonatomic,strong) NSDate *startedAt;
-@property(nonatomic,strong) NSDate *pageReadySince;
 @property(nonatomic,assign) BOOL finished;
 - (void)installInController:(UIViewController *)controller;
 @end
@@ -315,19 +314,9 @@ static UIImage *CGStartupIcon(void) {
             if (!strongSelf || strongSelf.finished) return;
 
             NSTimeInterval elapsed = -[strongSelf.startedAt timeIntervalSinceNow];
-            // A Gecko title update precedes the final DOM presentation/React
-            // hydration. The previous loader vanished immediately when the
-            // title became ready, exposing a transient page-hide/repaint flash.
-            // Require uninterrupted readiness before revealing the real page.
-            if (pageReady) {
-                if (!strongSelf.pageReadySince) strongSelf.pageReadySince = NSDate.date;
-            } else {
-                strongSelf.pageReadySince = nil;
-            }
-            NSTimeInterval stableFor = strongSelf.pageReadySince
-                ? -[strongSelf.pageReadySince timeIntervalSinceNow] : 0.0;
-            if ((pageReady && stableFor >= 1.15 && elapsed >= 1.6) ||
-                elapsed >= 10.0) {
+            // Give the document-start cleanup a fraction of a second after the
+            // Gecko title update so the loader never reveals the old web UI.
+            if ((pageReady && elapsed >= 0.9) || elapsed >= 8.0) {
                 [strongSelf finishAnimated:YES];
             } else {
                 [strongSelf scheduleReadyCheck];
@@ -677,7 +666,10 @@ static void CGStart(void) {
         // The previous independent constructors could run in the reverse order,
         // deleting the newly seeded tab and causing a blank first launch.
         extern void CGRunPendingDataMaintenance(void);
-        CGRunPendingDataMaintenance();
+        extern BOOL CGHasPendingDataClear(void);
+        // A normal launch follows the known-good v0.55 constructor ordering.
+        // When Clear App Data is queued, process it before seeding the tab.
+        if (CGHasPendingDataClear()) CGRunPendingDataMaintenance();
         CGConfigurePreferences();
         CGPreallowChatGPTMicrophoneSite();
         CGEnsureStartupTab();
