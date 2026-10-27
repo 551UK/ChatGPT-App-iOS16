@@ -38,7 +38,7 @@ jobs:
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
           otool -L "$MAIN" | grep -F '@executable_path/Frameworks/ChatGPTShell.dylib'
           test -s build/work/unpacked/Payload/ChatGPT.app/AppIcon60x60@3x.png
-          test -s build/work/unpacked/Payload/ChatGPT.app/StartupLoaderIcon.jpg
+          test -s build/work/unpacked/Payload/ChatGPT.app/StartupLoaderIcon.png
           test -d 'build/work/unpacked/Payload/ChatGPT.app/PlugIns/Reynard Helper.appex'
           test ! -d 'build/work/unpacked/Payload/ChatGPT.app/PlugIns/OpenIn.appex'
           python3 - <<'PY'
@@ -64,7 +64,7 @@ jobs:
           grep -Fq 'CGToolbarRelayoutKey' src/ChatGPTShell.m
           grep -Fq 'ChatGPTNativeStartupLoader' src/ChatGPTShell.m
           grep -Fq 'ChatGPTStartupIconSpin' src/ChatGPTShell.m
-          grep -Fq 'StartupLoaderIcon.jpg' src/ChatGPTShell.m
+          grep -Fq 'StartupLoaderIcon.png' src/ChatGPTShell.m
           ! grep -Fq 'UIActivityIndicatorView' src/ChatGPTShell.m
           ! grep -Fq 'label.text = @"ChatGPT"' src/ChatGPTShell.m
           grep -Fq 'CGStartupPageReady' src/ChatGPTShell.m
@@ -99,7 +99,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-18. Simplifies the native cold-start loader to exactly one centered spinning icon using the user-supplied ChatGPT logo. Removes the ChatGPT text label and separate activity spinner entirely. The supplied icon is bundled as StartupLoaderIcon.jpg and rotates continuously until the existing Gecko-ready check fades the overlay away. All working microphone, no-flash cleanup, full-screen layout, viewport and swipe-back behavior remains unchanged. Rootless Dopamine DEB plus test IPA."
+          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-18. Native cold-start loader is intentionally minimal: one centered spinning ChatGPT knot icon on a white background, with no text and no separate activity spinner. The icon rotates continuously until the existing Gecko-ready check fades the overlay away. Existing microphone permissions, no-flash cleanup, full-screen layout, viewport fix and swipe-right Back remain unchanged. Rootless Dopamine DEB plus test IPA."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
