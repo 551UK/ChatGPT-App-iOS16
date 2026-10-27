@@ -4,8 +4,193 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <CoreFoundation/CoreFoundation.h>
+#import <objc/message.h>
+#import <sqlite3.h>
+#import <dlfcn.h>
 
 static CFStringRef const CGPrefsDomain = CFSTR("com.551uk.chatgpt.settings");
+
+static NSString *const CGChatGPTBundleID = @"com.551uk.chatgptios16";
+static NSString *const CGAppearanceURL = @"https://chatgpt.com/settings/appearance";
+
+static NSURL *CGChatGPTDataContainerURL(void) {
+    dlopen("/System/Library/Frameworks/CoreServices.framework/CoreServices", RTLD_LAZY);
+
+    Class proxyClass = NSClassFromString(@"LSApplicationProxy");
+    SEL proxySelector = NSSelectorFromString(@"applicationProxyForIdentifier:");
+    if (!proxyClass || ![proxyClass respondsToSelector:proxySelector]) return nil;
+
+    id proxy = ((id (*)(id, SEL, id))objc_msgSend)(
+        (id)proxyClass, proxySelector, CGChatGPTBundleID);
+    if (!proxy) return nil;
+
+    SEL containerSelector = NSSelectorFromString(@"dataContainerURL");
+    if (![proxy respondsToSelector:containerSelector]) return nil;
+
+    return ((id (*)(id, SEL))objc_msgSend)(proxy, containerSelector);
+}
+
+static BOOL CGBindText(sqlite3_stmt *stmt, int index, NSString *value) {
+    if (!stmt || !value) return NO;
+    return sqlite3_bind_text(stmt,
+                             index,
+                             value.UTF8String,
+                             -1,
+                             SQLITE_TRANSIENT) == SQLITE_OK;
+}
+
+static BOOL CGPrepareAppearanceTab(NSString **errorMessage) {
+    NSURL *container = CGChatGPTDataContainerURL();
+    if (!container) {
+        if (errorMessage) *errorMessage = @"Could not locate the ChatGPT app data container.";
+        return NO;
+    }
+
+    NSURL *databaseURL = [[[[container URLByAppendingPathComponent:@"Library" isDirectory:YES]
+        URLByAppendingPathComponent:@"Application Support" isDirectory:YES]
+        URLByAppendingPathComponent:@"AppData/TabManagement" isDirectory:YES]
+        URLByAppendingPathComponent:@"TabManagement" isDirectory:NO];
+
+    sqlite3 *db = NULL;
+    if (sqlite3_open_v2(databaseURL.path.UTF8String,
+                        &db,
+                        SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+                        NULL) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        if (errorMessage) *errorMessage = @"Could not open ChatGPT's saved tab database.";
+        return NO;
+    }
+
+    sqlite3_busy_timeout(db, 2500);
+
+    BOOL ok = sqlite3_exec(db, "BEGIN IMMEDIATE TRANSACTION;", NULL, NULL, NULL) == SQLITE_OK;
+    NSString *tabID = nil;
+
+    if (ok) {
+        sqlite3_stmt *stmt = NULL;
+        const char *sql =
+            "SELECT selected_regular_tab_id FROM tab_state WHERE id=1 LIMIT 1;";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK &&
+            sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *value = (const char *)sqlite3_column_text(stmt, 0);
+            if (value) tabID = [NSString stringWithUTF8String:value];
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    if (ok && !tabID.length) {
+        sqlite3_stmt *stmt = NULL;
+        const char *sql =
+            "SELECT id FROM tabs WHERE is_private=0 ORDER BY position ASC LIMIT 1;";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK &&
+            sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *value = (const char *)sqlite3_column_text(stmt, 0);
+            if (value) tabID = [NSString stringWithUTF8String:value];
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    if (ok && !tabID.length) {
+        tabID = NSUUID.UUID.UUIDString;
+        sqlite3_stmt *stmt = NULL;
+        const char *sql =
+            "INSERT INTO tabs "
+            "(id,title,url,created_at,opened_from,tab_session_state,is_muted,is_private,position) "
+            "VALUES (?, 'Appearance', ?, ?, NULL, NULL, 0, 0, "
+            "COALESCE((SELECT MAX(position)+1 FROM tabs WHERE is_private=0),0));";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK ||
+            !CGBindText(stmt, 1, tabID) ||
+            !CGBindText(stmt, 2, CGAppearanceURL)) {
+            ok = NO;
+        } else {
+            sqlite3_bind_double(stmt, 3, [NSDate date].timeIntervalSince1970);
+            ok = sqlite3_step(stmt) == SQLITE_DONE;
+        }
+        sqlite3_finalize(stmt);
+    } else if (ok) {
+        sqlite3_stmt *stmt = NULL;
+        const char *sql =
+            "UPDATE tabs "
+            "SET title='Appearance', url=?, tab_session_state=NULL "
+            "WHERE id=?;";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK ||
+            !CGBindText(stmt, 1, CGAppearanceURL) ||
+            !CGBindText(stmt, 2, tabID)) {
+            ok = NO;
+        } else {
+            ok = sqlite3_step(stmt) == SQLITE_DONE;
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    if (ok) {
+        sqlite3_stmt *stmt = NULL;
+        const char *sql =
+            "UPDATE tab_state "
+            "SET selected_regular_tab_id=?, selected_tab_mode='regular' "
+            "WHERE id=1;";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK ||
+            !CGBindText(stmt, 1, tabID)) {
+            ok = NO;
+        } else {
+            ok = sqlite3_step(stmt) == SQLITE_DONE;
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    if (ok) {
+        ok = sqlite3_exec(db, "COMMIT TRANSACTION;", NULL, NULL, NULL) == SQLITE_OK;
+    } else {
+        sqlite3_exec(db, "ROLLBACK TRANSACTION;", NULL, NULL, NULL);
+    }
+
+    sqlite3_close(db);
+
+    if (!ok && errorMessage) {
+        *errorMessage = @"Could not prepare the Appearance page in ChatGPT.";
+    }
+    return ok;
+}
+
+static void CGTerminateChatGPT(void) {
+    dlopen("/System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices",
+           RTLD_LAZY);
+
+    Class serviceClass = NSClassFromString(@"FBSSystemService");
+    SEL sharedSelector = NSSelectorFromString(@"sharedService");
+    if (!serviceClass || ![serviceClass respondsToSelector:sharedSelector]) return;
+
+    id service = ((id (*)(id, SEL))objc_msgSend)((id)serviceClass, sharedSelector);
+    SEL terminateSelector =
+        NSSelectorFromString(@"terminateApplication:forReason:andReport:withDescription:");
+    if (!service || ![service respondsToSelector:terminateSelector]) return;
+
+    ((void (*)(id, SEL, id, long long, BOOL, id))objc_msgSend)(
+        service,
+        terminateSelector,
+        CGChatGPTBundleID,
+        5,
+        NO,
+        @"Opening ChatGPT Appearance settings"
+    );
+}
+
+static BOOL CGLaunchChatGPT(void) {
+    dlopen("/System/Library/Frameworks/CoreServices.framework/CoreServices", RTLD_LAZY);
+
+    Class workspaceClass = NSClassFromString(@"LSApplicationWorkspace");
+    SEL defaultSelector = NSSelectorFromString(@"defaultWorkspace");
+    if (!workspaceClass || ![workspaceClass respondsToSelector:defaultSelector]) return NO;
+
+    id workspace =
+        ((id (*)(id, SEL))objc_msgSend)((id)workspaceClass, defaultSelector);
+    SEL openSelector = NSSelectorFromString(@"openApplicationWithBundleID:");
+    if (!workspace || ![workspace respondsToSelector:openSelector]) return NO;
+
+    return ((BOOL (*)(id, SEL, id))objc_msgSend)(
+        workspace, openSelector, CGChatGPTBundleID);
+}
+
 
 static id CGCopyPreference(NSString *key) {
     CFPreferencesAppSynchronize(CGPrefsDomain);
@@ -208,6 +393,14 @@ static void CGSetPreference(NSString *key, id value) {
         cell.textLabel.textColor = UIColor.systemBlueColor;
     }
 
+    if ([identifier isEqualToString:@"appearanceLink"]) {
+        cell.textLabel.textColor = UIColor.systemPurpleColor;
+        cell.imageView.image = [UIImage systemImageNamed:@"paintpalette.fill"];
+        cell.imageView.tintColor = UIColor.systemPurpleColor;
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.accessibilityLabel = @"Open ChatGPT Appearance Settings";
+    }
+
     if ([identifier isEqualToString:@"githubLink"]) {
         cell.textLabel.hidden = YES;
         if ([cell isKindOfClass:PSTableCell.class]) {
@@ -287,6 +480,30 @@ static void CGSetPreference(NSString *key, id value) {
     CGSetPreference(@"pendingClearCache", @YES);
     [self showQueuedAlertWithTitle:@"Cache Clear Queued"
                            message:@"The local browser cache will be cleared the next time ChatGPT opens. Your login and conversations will be preserved."];
+}
+
+- (void)openAppearance:(id)sender {
+    CGTerminateChatGPT();
+
+    dispatch_after(
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.65 * NSEC_PER_SEC)),
+        dispatch_get_main_queue(), ^{
+            NSString *errorMessage = nil;
+            if (!CGPrepareAppearanceTab(&errorMessage)) {
+                [self showQueuedAlertWithTitle:@"Unable to Open Appearance"
+                                       message:errorMessage ?: @"ChatGPT Appearance could not be prepared."];
+                return;
+            }
+
+            dispatch_after(
+                dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.20 * NSEC_PER_SEC)),
+                dispatch_get_main_queue(), ^{
+                    if (!CGLaunchChatGPT()) {
+                        [self showQueuedAlertWithTitle:@"Unable to Open ChatGPT"
+                                               message:@"Make sure the ChatGPT app is installed, then try again."];
+                    }
+                });
+        });
 }
 
 - (void)openRepository:(id)sender {
