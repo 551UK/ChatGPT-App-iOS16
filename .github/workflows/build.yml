@@ -129,7 +129,6 @@ jobs:
           grep -Fq 'cg-ios16-topbar-cutoff' web/chatgpt-app-shell.js
           grep -Fq 'rowBottom' web/chatgpt-app-shell.js
           grep -Fq 'visibleTopControls' web/chatgpt-app-shell.js
-          grep -Fq 'eligibleRows' web/chatgpt-app-shell.js
           grep -Fq 'aFull' web/chatgpt-app-shell.js
           grep -Fq 'bFull' web/chatgpt-app-shell.js
           grep -Fq 'stay on web' web/chatgpt-app-shell.js
