@@ -8,6 +8,7 @@ include $(THEOS)/makefiles/common.mk
 BUNDLE_NAME = ChatGPTPrefs
 ChatGPTPrefs_FILES = ChatGPTPrefs.m
 ChatGPTPrefs_FRAMEWORKS = Foundation UIKit CoreFoundation QuartzCore
+ChatGPTPrefs_LIBRARIES = sqlite3
 ChatGPTPrefs_PRIVATE_FRAMEWORKS = Preferences
 ChatGPTPrefs_INSTALL_PATH = /Library/PreferenceBundles
 ChatGPTPrefs_INFOPLIST_FILE = Resources/Info.plist
