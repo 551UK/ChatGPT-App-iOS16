@@ -11,13 +11,13 @@ Experimental **ChatGPT app** using the complete mobile website at https://chatgp
 
 ## Installation
 
-Download the `com.551uk.chatgptgecko_0.19.0-6_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
+Download the `com.551uk.chatgptgecko_0.19.0-7_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
 
 ## App-style navigation and microphone
 
-The real ChatGPT website remains the conversation engine because it already provides current conversations, attachments, search and account features. Reynard's URL bar, bottom toolbar and tab overview are hidden. Interface work now adds an official-app-style fixed **New Chat** compose control without replacing the website's working hamburger/sidebar or login/account controls. A small native back control is reserved for voice routes so a fullscreen voice page cannot trap you.
+The real ChatGPT website remains the conversation engine because it already provides current conversations, attachments, search and account features. Reynard's URL bar, toolbar, tab overview and share controls are hidden. The experimental fixed **New Chat** overlay has been removed completely. A small native **Back / Forward** strip now sits at the very bottom: Back on the far left, Forward on the far right, with no URL field or browser branding. The website fills the full app area above that strip, including voice pages.
 
-For this dedicated ChatGPT wrapper, Reynard's **chatgpt.com microphone site permission is pre-allowed** so the browser-level prompt does not have to be repeated. The app explicitly asks iOS for microphone authorization on first active launch when the system state is still Not Determined. iOS itself cannot be silently pre-authorized; the system prompt must still be accepted once. The wrapper also overrides Reynard's hidden bottom-toolbar geometry so its invisible 94-point toolbar/minimized safe-area height is no longer reserved underneath ChatGPT.
+For this dedicated ChatGPT wrapper, Reynard's **chatgpt.com microphone site permission is pre-allowed** so the browser-level prompt does not have to be repeated. The app explicitly asks iOS for microphone authorization on first active launch when the system state is still Not Determined. iOS itself cannot be silently pre-authorized; the system prompt must still be accepted once. The wrapper overrides Reynard's hidden bottom-toolbar geometry so its invisible browser toolbar does not reserve extra blank space. The only intentional bottom space is the compact native Back / Forward strip.
 
 ## Building
 
