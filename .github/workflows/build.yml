@@ -74,6 +74,10 @@ jobs:
           assert app["CFBundleIdentifier"] == "com.551uk.chatgptios16"
           assert app["CFBundleDisplayName"] == "ChatGPT"
           assert "CFBundleURLTypes" not in app, "ChatGPT must never claim Reynard/http/https URL schemes"
+          background_modes = app.get("UIBackgroundModes", [])
+          assert "audio" not in background_modes, "ChatGPT must not declare background audio mode"
+          assert "fetch" in background_modes
+          assert "processing" in background_modes
           assert helper["CFBundleIdentifier"] == "com.551uk.chatgptios16.Helper"
           assert "NSMicrophoneUsageDescription" in app
           assert "NSMicrophoneUsageDescription" in helper
