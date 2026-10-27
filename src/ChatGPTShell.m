@@ -237,7 +237,6 @@ static void CGEnsureStartupTab(void) {
     button.backgroundColor =
       [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:0.72];
     button.layer.cornerRadius = 18.0;
-    button.layer.cornerCurve = kCACornerCurveContinuous;
     button.accessibilityLabel = label;
     button.accessibilityIdentifier = identifier;
     [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
