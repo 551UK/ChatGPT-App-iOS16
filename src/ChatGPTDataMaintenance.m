@@ -29,8 +29,9 @@ static BOOL CGReadBool(NSString *key, BOOL fallback) {
 }
 
 
-// A single queued bitmask replaces the two old one-shot history/cache flags.
-// Individual selected categories can be retried if a file operation fails.
+// Clear App Data is a one-shot request, not a permanent launch policy.
+// Even if a cache file is locked or missing, never repeat destructive cleanup
+// automatically on subsequent normal starts. Users can manually retry.
 enum {
     CGClearHistoryBit     = 1 << 0,
     CGClearCacheBit       = 1 << 1,
@@ -359,6 +360,11 @@ void CGRunPendingDataMaintenance(void) {
         NSUInteger mask = CGReadClearMask();
         NSUInteger incomplete = mask;
 
+        // Consume the request BEFORE touching any files. An error or launch
+        // interruption must never leave cleanup re-armed for every startup:
+        // that repeatedly removes Gecko caches and makes the home page flicker.
+        if (mask) CGWriteClearMask(0);
+
         // Process the queued request before Reynard initializes Gecko and
         // opens its DB stores. Never touch cookies, session tokens, saved
         // passwords, storage/default, or ChatGPT's web-account data.
@@ -384,8 +390,7 @@ void CGRunPendingDataMaintenance(void) {
             if (CGClearOpenTabs()) incomplete &= ~CGClearTabsBit;
         }
         if (mask) {
-            CGWriteClearMask(incomplete);
-            NSLog(@"[ChatGPTGecko] Clear App Data processed: requested=%lu retry=%lu",
+            NSLog(@"[ChatGPTGecko] One-shot Clear App Data finished: requested=%lu failures=%lu (no automatic retries)",
                   (unsigned long)mask, (unsigned long)incomplete);
         }
 
