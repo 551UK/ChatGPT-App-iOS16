@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-7_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-8_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
@@ -62,6 +62,10 @@ jobs:
           grep -Fq 'CGChromeSafeAreaInsets' src/ChatGPTShell.m
           grep -Fq 'CGZeroBottomToolbarFrame' src/ChatGPTShell.m
           grep -Fq 'CGPreallowChatGPTMicrophoneSite' src/ChatGPTShell.m
+          grep -Fq 'What can you do?' web/chatgpt-app-shell.js
+          grep -Fq 'ChatGPT is AI and can make mistakes.' web/chatgpt-app-shell.js
+          grep -Fq 'cg-ios16-composer' web/chatgpt-app-shell.js
+          find build/work/unpacked/Payload/ChatGPT.app -path '*/extensions/readerview/chatgpt-app-shell.js' -type f | grep -q .
           ! grep -Fq 'ChatGPTAppOptions' src/ChatGPTShell.m
           ! grep -Fq 'ChatGPTNewChat' src/ChatGPTShell.m
           ! grep -Fq 'composeButton' src/ChatGPTShell.m
@@ -86,7 +90,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-7. Removes the fixed New Chat icon entirely. Adds a minimal ChatGPT-themed bottom navigation strip with only Back on the far left and Forward on the far right, using native chevrons and subtle system styling. The ChatGPT web page fills the full area above this strip; Reynard URL/tab/share chrome remains hidden. Keeps the working microphone preallow + iOS permission behavior unchanged. Rootless Dopamine DEB plus test IPA."
+          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-8. Keeps the working microphone permissions. Removes the fixed New Chat overlay. Adds a compact native Back/Forward strip at the very bottom with no URL field or browser branding. Adds a Gecko content-script presentation layer for chatgpt.com that hides the small AI/disclaimer footer text, removes the 'What can you do?' suggestion button, and docks the Ask ChatGPT composer down to the bottom of the web area just above the native navigation strip. Reynard URL/tab/share chrome remains hidden. Rootless Dopamine DEB plus test IPA."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
