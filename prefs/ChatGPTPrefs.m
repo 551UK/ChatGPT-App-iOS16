@@ -159,7 +159,7 @@ static void CGSetPreference(NSString *key, id value) {
 
     UILabel *heading = [UILabel new];
     heading.translatesAutoresizingMaskIntoConstraints = NO;
-    heading.text = @"ChatGPT iOS 16";
+    heading.text = @"ChatGPT iOS 16 & Below";
     heading.font = [UIFont systemFontOfSize:22.0 weight:UIFontWeightBold];
     heading.textColor = UIColor.whiteColor;
     heading.adjustsFontSizeToFitWidth = YES;
@@ -168,7 +168,7 @@ static void CGSetPreference(NSString *key, id value) {
 
     UILabel *tagline = [UILabel new];
     tagline.translatesAutoresizingMaskIntoConstraints = NO;
-    tagline.text = @"Modern ChatGPT. Built for iOS 16.";
+    tagline.text = @"Modern ChatGPT. Built for iOS 16 & below.";
     tagline.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightMedium];
     tagline.textColor = [UIColor colorWithWhite:1.0 alpha:0.70];
     [hero addSubview:tagline];
