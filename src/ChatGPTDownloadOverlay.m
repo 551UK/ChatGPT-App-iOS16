@@ -66,6 +66,23 @@ static UIViewController *CGFindBrowserController(UIViewController *controller) {
     return nil;
 }
 
+static UIViewController *CGCurrentBrowserController(void) {
+    UIApplication *app = UIApplication.sharedApplication;
+
+    for (UIWindow *window in app.windows) {
+        if (window.hidden || window.alpha <= 0.01) continue;
+        UIViewController *found = CGFindBrowserController(window.rootViewController);
+        if (found) return found;
+    }
+
+    for (UIWindow *window in app.windows) {
+        UIViewController *found = CGFindBrowserController(window.rootViewController);
+        if (found) return found;
+    }
+
+    return nil;
+}
+
 static NSArray<NSDictionary *> *CGDownloadManifestEntries(void) {
     NSString *support = NSSearchPathForDirectoriesInDomains(
         NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject;
@@ -209,8 +226,10 @@ typedef struct {
 
 static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
     CGDownloadVisualState result = { NO, NO, 0.0 };
-    UIWindow *window = CGDownloadMainWindow();
-    UIButton *button = CGFindDownloadToolbarButtonInView(window);
+    UIViewController *browser = CGCurrentBrowserController();
+    UIButton *button = browser.isViewLoaded
+        ? CGFindDownloadToolbarButtonInView(browser.view)
+        : nil;
     if (!button) return result;
 
     UIView *track = nil;
@@ -530,8 +549,7 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
 }
 
 - (void)ensurePill {
-    UIWindow *window = CGDownloadMainWindow();
-    UIViewController *browser = CGFindBrowserController(window.rootViewController);
+    UIViewController *browser = CGCurrentBrowserController();
     if (!browser || !browser.isViewLoaded) return;
 
     if (!self.pill) {
@@ -674,8 +692,7 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
 }
 
 - (void)openDownloadsManager {
-    UIWindow *window = CGDownloadMainWindow();
-    UIViewController *browser = CGFindBrowserController(window.rootViewController);
+    UIViewController *browser = CGCurrentBrowserController();
     SEL selector = NSSelectorFromString(@"showDownloadsKeyCommand:");
     if (browser && [browser respondsToSelector:selector]) {
         ((void (*)(id,SEL,id))objc_msgSend)(browser, selector, nil);
