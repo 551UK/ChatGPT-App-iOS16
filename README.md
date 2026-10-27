@@ -11,7 +11,7 @@ Experimental **ChatGPT app** using the complete mobile website at https://chatgp
 
 ## Installation
 
-Download the `com.551uk.chatgptgecko_0.19.0-13_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
+Download the `com.551uk.chatgptgecko_0.19.0-14_iphoneos-arm64.deb` package from the latest test release and install through **Sileo** on Dopamine iOS 16. Alternatively, use the TrollStore IPA (do not install both at once). Keep the Gecko helper extension. This is an independent web-powered app, not the legacy ChatGPT IPA.
 
 ## App-style navigation and microphone
 
@@ -19,7 +19,7 @@ The real ChatGPT website remains the conversation engine because it already prov
 
 A Gecko content script cleans the website presentation without replacing ChatGPT's functionality. It now runs at **document start**: the page is kept hidden for the initial paint, the **What can you do?** suggestion and footer/disclaimer are removed, the **Ask ChatGPT** composer is positioned, and only then is the finished page revealed. The composer is pinned to **bottom: 0** because the native wrapper already handles the device safe area; this avoids applying the bottom inset twice on active-chat pages. This avoids the visible show-then-hide flash on launch. A short fail-safe always reveals the page if ChatGPT changes its markup.
 
-For this dedicated ChatGPT wrapper, Reynard's **chatgpt.com microphone site permission is pre-allowed** and the app requests iOS microphone authorization when needed. The microphone flow is left unchanged from the working build. Reynard's invisible toolbar geometry is zeroed so it cannot reserve blank space underneath the page.
+For this dedicated ChatGPT wrapper, Reynard's **chatgpt.com microphone site permission is pre-allowed** and the app requests iOS microphone authorization when needed. The microphone flow is left unchanged from the working build. Reynard's invisible toolbar geometry is zeroed at the **viewport source**: dynamic toolbar resizing is disabled, the hidden BottomToolbar reports zero bounds/height, and one relayout recalculates Gecko's content offsets. This prevents the active-chat page from reserving the old browser-toolbar strip underneath the composer.
 
 ## Building
 
