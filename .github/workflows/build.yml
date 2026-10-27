@@ -2,7 +2,7 @@ name: Build ChatGPT App (iOS 16)
 
 on:
   push:
-    branches: [remove-background-audio-v50]
+    branches: [hide-browser-tab-actions-v51]
   workflow_dispatch:
 
 concurrency:
@@ -41,6 +41,9 @@ jobs:
           git fetch origin main --depth=1
           git diff --exit-code ad1e79623d0b2292c932701d6ab3f9c7b97012c3 HEAD -- src/ChatGPTShell.m
           git diff --exit-code origin/main HEAD -- prefs src/ChatGPTDataMaintenance.m
+          test -s src/ChatGPTContextMenu.m
+          grep -Fq 'CGChatGPTContextMenuFactory' src/ChatGPTContextMenu.m
+          grep -Fq 'ChatGPTContextMenu.m' scripts/package.sh
           echo "PASS: native ChatGPT shell is exact 0.19.0-22 and working Settings/data code matches current main"
 
       - name: Package Gecko-based ChatGPT app
@@ -49,7 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-50_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-51_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/ChatGPTPrefs'
@@ -228,6 +231,6 @@ jobs:
           # The actual Settings loading and icon rendering must still be device-tested.
       - uses: actions/upload-artifact@v4
         with:
-          name: ChatGPT-0.19.0-50-NO-BACKGROUND-AUDIO
-          path: dist/com.551uk.chatgptgecko_0.19.0-50_iphoneos-arm64.deb
+          name: ChatGPT-0.19.0-51-NO-BROWSER-TAB-ACTIONS
+          path: dist/com.551uk.chatgptgecko_0.19.0-51_iphoneos-arm64.deb
           if-no-files-found: error
