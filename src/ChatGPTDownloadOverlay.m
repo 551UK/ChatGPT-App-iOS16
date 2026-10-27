@@ -256,7 +256,7 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
 @property(nonatomic,strong) NSLayoutConstraint *iconLeadingConstraint;
 @property(nonatomic,strong) NSLayoutConstraint *iconCenterConstraint;
 @property(nonatomic,assign) CGDownloadPillMode mode;
-- (void)attachToWindow:(UIWindow *)window;
+- (void)attachToHostView:(UIView *)host;
 - (void)showDownloadingProgress:(CGFloat)progress fileName:(NSString *)fileName;
 - (void)showCompletedFileName:(NSString *)fileName;
 - (void)showCompact;
@@ -365,21 +365,27 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
     return self;
 }
 
-- (void)attachToWindow:(UIWindow *)window {
-    if (!window) return;
-    if (self.superview == window) return;
+- (void)attachToHostView:(UIView *)host {
+    if (!host) return;
+    if (self.superview == host) {
+        [host bringSubviewToFront:self];
+        self.layer.zPosition = 10000.0;
+        return;
+    }
 
     [self removeFromSuperview];
-    [window addSubview:self];
+    [host addSubview:self];
+    [host bringSubviewToFront:self];
+    self.layer.zPosition = 10000.0;
 
-    CGFloat expandedWidth = MIN(300.0, MAX(250.0, CGRectGetWidth(window.bounds) - 42.0));
+    CGFloat expandedWidth = MIN(300.0, MAX(250.0, CGRectGetWidth(host.bounds) - 42.0));
     self.widthConstraint.constant = expandedWidth;
 
-    self.centerXConstraint = [self.centerXAnchor constraintEqualToAnchor:window.centerXAnchor];
-    self.trailingConstraint = [self.trailingAnchor constraintEqualToAnchor:window.safeAreaLayoutGuide.trailingAnchor constant:-10.0];
+    self.centerXConstraint = [self.centerXAnchor constraintEqualToAnchor:host.centerXAnchor];
+    self.trailingConstraint = [self.trailingAnchor constraintEqualToAnchor:host.safeAreaLayoutGuide.trailingAnchor constant:-10.0];
 
     [NSLayoutConstraint activateConstraints:@[
-        [self.topAnchor constraintEqualToAnchor:window.safeAreaLayoutGuide.topAnchor constant:8.0],
+        [self.topAnchor constraintEqualToAnchor:host.safeAreaLayoutGuide.topAnchor constant:8.0],
         self.centerXConstraint
     ]];
 }
@@ -524,7 +530,8 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
 
 - (void)ensurePill {
     UIWindow *window = CGDownloadMainWindow();
-    if (!window) return;
+    UIViewController *browser = CGFindBrowserController(window.rootViewController);
+    if (!browser || !browser.isViewLoaded) return;
 
     if (!self.pill) {
         self.pill = [CGDownloadPillView new];
@@ -535,7 +542,10 @@ static CGDownloadVisualState CGReadReynardDownloadVisualState(void) {
                                    action:@selector(handleActionTap:)
                          forControlEvents:UIControlEventTouchUpInside];
     }
-    [self.pill attachToWindow:window];
+
+    // Keep the pill on the actual page the user is viewing, above Gecko's
+    // content and hidden browser chrome, just like the reference screenshot.
+    [self.pill attachToHostView:browser.view];
 }
 
 - (void)downloadDidStart:(NSNotification *)notification {
