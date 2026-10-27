@@ -126,7 +126,10 @@ jobs:
           grep -Fq 'Downloading %ld%%' src/ChatGPTDownloadOverlay.m
           grep -Fq 'Downloaded' src/ChatGPTDownloadOverlay.m
           grep -Fq 'ToolbarButton' src/ChatGPTDownloadOverlay.m
-          grep -Fq 'ChatGPTDownloadOverlay.m' scripts/package.sh\n          grep -Fq 'ChatGPTExternalLinks.m' scripts/package.sh\n          grep -Fq 'UIApplicationOpenURLOptionUniversalLinksOnly' src/ChatGPTExternalLinks.m\n          grep -Fq 'Handing external URL to default browser' src/ChatGPTExternalLinks.m
+          grep -Fq 'ChatGPTDownloadOverlay.m' scripts/package.sh
+          grep -Fq 'ChatGPTExternalLinks.m' scripts/package.sh
+          grep -Fq 'UIApplicationOpenURLOptionUniversalLinksOnly' src/ChatGPTExternalLinks.m
+          grep -Fq 'Handing external URL to default browser' src/ChatGPTExternalLinks.m
           grep -Fq 'pendingClearHistory' src/ChatGPTDataMaintenance.m
           grep -Fq 'pendingClearCache' src/ChatGPTDataMaintenance.m
           grep -Fq 'places.history.enabled' src/ChatGPTDataMaintenance.m
