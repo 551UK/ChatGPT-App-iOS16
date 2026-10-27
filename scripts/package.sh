@@ -36,13 +36,21 @@ SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CLANG="$(xcrun --sdk iphoneos --find clang)"
 "$CLANG" -arch arm64 -isysroot "$SDK" -miphoneos-version-min=16.0 \
     -fobjc-arc -fblocks -O2 -dynamiclib \
-    -framework Foundation -framework UIKit -framework CoreGraphics -framework AVFoundation -lsqlite3 \
+    -framework Foundation -framework UIKit -framework CoreGraphics -framework QuartzCore -framework AVFoundation -lsqlite3 \
     -Wno-deprecated-declarations \
     "$ROOT/src/ChatGPTShell.m" -o "$APP/Frameworks/ChatGPTShell.dylib"
 
 python3 "$ROOT/scripts/inject.py" "$APP/$MAIN_EXE"
 python3 "$ROOT/scripts/rebrand.py" "$APP"
 python3 "$ROOT/scripts/icon.py" "$APP"
+
+# Bundle the user-supplied startup spinner icon as a dedicated loader asset.
+python3 - "$ROOT/assets/startup-icon.b64" "$APP/StartupLoaderIcon.jpg" <<'PY'
+import base64, pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text().strip()
+pathlib.Path(sys.argv[2]).write_bytes(base64.b64decode(source))
+PY
+
 
 # Extend Reynard's already-loaded built-in ReaderView WebExtension with a
 # ChatGPT-only content script. This gives the dedicated app a presentation
@@ -157,7 +165,7 @@ ditto "$NEWAPP" "$PKG/var/jb/Applications/ChatGPT.app"
 cat > "$PKG/DEBIAN/control" <<'CONTROL'
 Package: com.551uk.chatgptgecko
 Name: ChatGPT
-Version: 0.19.0-17
+Version: 0.19.0-18
 Architecture: iphoneos-arm64
 Maintainer: 551UK
 Author: 551UK
@@ -180,7 +188,7 @@ if command -v uicache >/dev/null 2>&1; then uicache -a || true; fi
 exit 0
 POSTRM
 chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/postrm"
-DEB="$DIST/com.551uk.chatgptgecko_0.19.0-17_iphoneos-arm64.deb"
+DEB="$DIST/com.551uk.chatgptgecko_0.19.0-18_iphoneos-arm64.deb"
 dpkg-deb --root-owner-group -Zxz --build "$PKG" "$DEB"
 dpkg-deb --field "$DEB" Package Architecture
 ls -lh "$DEB"
