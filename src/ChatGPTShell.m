@@ -331,8 +331,7 @@ static void CGApplyAppLayout(UIViewController *controller) {
         [navigation installInController:controller];
     }
 
-    // Full-screen ChatGPT: the Gecko content reaches the device bottom.
-    // No native bar, URL field, forward button or visible browser chrome.
+    // Full-screen ChatGPT content with all Reynard browser chrome hidden.
     NSArray<NSLayoutConstraint *> *ours =
       objc_getAssociatedObject(content, CGConstraintsAdjustedKey);
     if (!ours) {
@@ -363,10 +362,7 @@ static void CGApplyAppLayout(UIViewController *controller) {
     }
     [root bringSubviewToFront:content];
 
-    // The first upstream layout can run before our BottomToolbar override is
-    // installed and may cache a non-zero Gecko viewport inset. Force exactly
-    // one additional BrowserViewController layout after the zero-height hooks
-    // are active so ToolbarController recalculates all Gecko offsets as zero.
+    // Recalculate Gecko offsets once after the zero-height toolbar hook is active.
     if (![objc_getAssociatedObject(controller, CGToolbarRelayoutKey) boolValue]) {
         objc_setAssociatedObject(controller, CGToolbarRelayoutKey, @YES,
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
