@@ -11,7 +11,7 @@
     "  position: fixed !important;",
     "  left: 18px !important;",
     "  right: 18px !important;",
-    "  bottom: calc(env(safe-area-inset-bottom, 0px) + 6px) !important;",
+    "  bottom: env(safe-area-inset-bottom, 0px) !important;",
     "  top: auto !important;",
     "  width: auto !important;",
     "  max-width: 760px !important;",
@@ -50,34 +50,50 @@
 
   function hideDisclaimers() {
     const phrases = [
-      "ChatGPT is AI and can make mistakes.",
-      "ChatGPT is AI. By using it, you agree to our Terms & Privacy Policy.",
-      "Chats may be reviewed and used to improve our AI models."
+      "chatgpt is ai and can make mistakes",
+      "chatgpt is ai. by using it, you agree to our terms & privacy policy",
+      "chats may be reviewed and used to improve our ai models",
+      "chatgpt can make mistakes",
+      "check important info"
     ];
 
-    for (const element of document.querySelectorAll("footer, small, p, div, span")) {
+    const candidates = document.querySelectorAll(
+      "footer, small, p, div, span, a, [class*='footer'], [class*='disclaimer']"
+    );
+
+    for (const element of candidates) {
       if (element.dataset.cgIos16Hidden === "1") continue;
+
       const text = normalizedText(element);
-      if (!text || text.length > 320 || !phrases.some((phrase) => text.includes(phrase))) continue;
+      const lower = text.toLowerCase();
+      if (!text || text.length > 420 || !phrases.some((phrase) => lower.includes(phrase))) {
+        continue;
+      }
 
       const rect = element.getBoundingClientRect();
-      // Keep this limited to small lower-page/footer elements so matching text
-      // inside an actual conversation is not removed.
-      if (rect.height <= 140 && (rect.top > innerHeight * 0.55 || element.closest("footer"))) {
-        let target = element;
-        for (let i = 0; i < 2 && target.parentElement; i++) {
-          const parent = target.parentElement;
-          const parentText = normalizedText(parent);
-          const parentRect = parent.getBoundingClientRect();
-          if (parentText.length <= 360 && parentRect.height <= 150) {
-            target = parent;
-          } else {
-            break;
-          }
-        }
-        target.dataset.cgIos16Hidden = "1";
-        target.classList.add("cg-ios16-hide");
+      const nearBottom = rect.top > innerHeight * 0.48 || !!element.closest("footer");
+      if (!nearBottom || rect.height > 190) continue;
+
+      // Prefer the complete disclaimer/footer block, but never climb into the
+      // actual composer or another interactive ChatGPT section.
+      let target = element.closest("footer") || element;
+      for (let i = 0; !element.closest("footer") && i < 3 && target.parentElement; i++) {
+        const parent = target.parentElement;
+        const parentRect = parent.getBoundingClientRect();
+        const parentText = normalizedText(parent).toLowerCase();
+        const containsComposer =
+          !!parent.querySelector("textarea, [contenteditable='true'], input[placeholder*='ChatGPT' i]");
+        const stillDisclaimer =
+          phrases.some((phrase) => parentText.includes(phrase)) &&
+          parentText.length <= 460 &&
+          parentRect.height <= 200;
+
+        if (containsComposer || !stillDisclaimer) break;
+        target = parent;
       }
+
+      target.dataset.cgIos16Hidden = "1";
+      target.classList.add("cg-ios16-hide");
     }
   }
 
@@ -99,14 +115,27 @@
     const input = findComposerInput();
     if (!input) return;
 
-    let node = input;
     let best = null;
-    for (let depth = 0; node && depth < 8; depth++, node = node.parentElement) {
-      const rect = node.getBoundingClientRect();
-      if (rect.width >= innerWidth * 0.72 && rect.height >= 42 && rect.height <= 130) {
-        best = node;
-        const radius = parseFloat(getComputedStyle(node).borderRadius) || 0;
-        if (radius >= 18) break;
+
+    // The form is the safest stable wrapper on current ChatGPT mobile pages.
+    const form = input.closest("form");
+    if (form) {
+      const rect = form.getBoundingClientRect();
+      if (rect.width >= innerWidth * 0.68 && rect.height >= 42 && rect.height <= 180) {
+        best = form;
+      }
+    }
+
+    // Fall back to the rounded visual composer wrapper if the page changes.
+    if (!best) {
+      let node = input;
+      for (let depth = 0; node && depth < 9; depth++, node = node.parentElement) {
+        const rect = node.getBoundingClientRect();
+        if (rect.width >= innerWidth * 0.70 && rect.height >= 42 && rect.height <= 150) {
+          best = node;
+          const radius = parseFloat(getComputedStyle(node).borderRadius) || 0;
+          if (radius >= 18) break;
+        }
       }
     }
     if (!best) return;
