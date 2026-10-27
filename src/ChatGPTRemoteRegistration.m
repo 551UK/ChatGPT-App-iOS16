@@ -12,7 +12,7 @@
 #import <MediaPlayer/MediaPlayer.h>
 #import <objc/runtime.h>
 
-typedef id (*CGRegisterRemoteHandlerIMP)(id, SEL, MPRemoteCommandHandler);
+typedef id (*CGRegisterRemoteHandlerIMP)(id, SEL, id);
 static CGRegisterRemoteHandlerIMP CGOriginalRegisterRemoteHandler = NULL;
 static NSObject *CGUnusedRemoteTarget = nil;
 
@@ -21,7 +21,7 @@ static BOOL CGIsChatGPTApp(void) {
           isEqualToString:@"com.551uk.chatgptios16"];
 }
 
-static id CGRejectBrowserRemoteHandler(id command, SEL selector, MPRemoteCommandHandler handler) {
+static id CGRejectBrowserRemoteHandler(id command, SEL selector, id handler) {
     if (!CGIsChatGPTApp() && CGOriginalRegisterRemoteHandler)
         return CGOriginalRegisterRemoteHandler(command, selector, handler);
 
