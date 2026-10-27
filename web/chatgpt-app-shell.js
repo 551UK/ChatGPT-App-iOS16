@@ -85,113 +85,180 @@
   }
 
   function stabilizeTopActionBar() {
-    const controls = Array.from(document.querySelectorAll(
+    const allControls = Array.from(document.querySelectorAll(
       "button, [role='button'], a"
     ));
 
-    const shareControl = controls.find((element) => {
+    const visibleTopControls = allControls.filter((element) => {
+      const rect = element.getBoundingClientRect();
+      if (rect.width < 20 || rect.height < 20) return false;
+      if (rect.bottom <= 0 || rect.top >= Math.min(140, innerHeight * 0.20)) return false;
+      if (rect.right <= 0 || rect.left >= innerWidth) return false;
+
+      const style = getComputedStyle(element);
+      if (style.display === "none" || style.visibility === "hidden") return false;
+      if (Number(style.opacity || 1) <= 0.05) return false;
+      return true;
+    });
+
+    if (visibleTopControls.length < 2) {
+      for (const old of document.querySelectorAll(".cg-ios16-topbar-control")) {
+        old.classList.remove("cg-ios16-topbar-control");
+      }
+      return false;
+    }
+
+    // ChatGPT uses several different header DOM shapes across normal chats,
+    // Work/Astra chats, loading states and the home page. Do not depend on a
+    // specific label such as "Share". Group visible controls by their vertical
+    // centre and use the highest real control row.
+    const sorted = visibleTopControls
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          element,
+          centerY: rect.top + rect.height / 2
+        };
+      })
+      .sort((a, b) => a.centerY - b.centerY);
+
+    const rows = [];
+    for (const item of sorted) {
+      let row = rows.find((candidate) =>
+        Math.abs(candidate.centerY - item.centerY) <= 18
+      );
+      if (!row) {
+        row = { centerY: item.centerY, items: [] };
+        rows.push(row);
+      }
+      row.items.push(item.element);
+      row.centerY =
+        row.items.reduce((sum, element) => {
+          const rect = element.getBoundingClientRect();
+          return sum + rect.top + rect.height / 2;
+        }, 0) / row.items.length;
+    }
+
+    const eligibleRows = rows
+      .filter((row) => row.items.length >= 2)
+      .sort((a, b) => a.centerY - b.centerY);
+
+    if (!eligibleRows.length) return false;
+
+    const rowControls = eligibleRows[0].items;
+    const rowLabels = rowControls.map((element) => {
       const text = normalizedText(element).toLowerCase();
       const aria = (element.getAttribute("aria-label") || "").trim().toLowerCase();
       const title = (element.getAttribute("title") || "").trim().toLowerCase();
-      return text === "share" || aria === "share" || title === "share";
+      return { element, text, aria, title };
     });
 
-    if (!shareControl) return false;
+    const shareControl =
+      rowLabels.find(({ text, aria, title }) =>
+        text === "share" ||
+        aria === "share" ||
+        title === "share" ||
+        aria.startsWith("share ") ||
+        title.startsWith("share ")
+      )?.element || null;
+
+    // The home page has the Chat/Work segmented control in the middle. The
+    // request is to enlarge only the top-left and top-right icons there, not
+    // the segmented switch itself.
+    const hasHomeSwitcher =
+      rowLabels.some(({ text }) => text === "chat") &&
+      rowLabels.some(({ text }) => text === "work");
+
+    let scaleControls = rowControls;
+    if (hasHomeSwitcher) {
+      scaleControls = rowControls.filter((element) => {
+        const label = normalizedText(element).toLowerCase();
+        if (label === "chat" || label === "work") return false;
+
+        const rect = element.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        return centerX <= innerWidth * 0.28 || centerX >= innerWidth * 0.72;
+      });
+    }
+
+    if (!scaleControls.length) return false;
+
+    for (const old of document.querySelectorAll(".cg-ios16-topbar-control")) {
+      if (!scaleControls.includes(old)) {
+        old.classList.remove("cg-ios16-topbar-control");
+      }
+    }
+    for (const element of scaleControls) {
+      element.classList.add("cg-ios16-topbar-control");
+    }
+
+    // Locate the real full-width top header from the detected row, rather than
+    // walking upward from Share. This works on chat variants where Share is
+    // missing, renamed, disabled or rendered in a different subtree.
+    const edgeTolerance = Math.max(12, innerWidth * 0.02);
+    const candidates = new Set();
+
+    for (const control of rowControls) {
+      let node = control;
+      for (let depth = 0; node && depth < 12; depth++, node = node.parentElement) {
+        if (node === document.body || node === document.documentElement) break;
+
+        const rect = node.getBoundingClientRect();
+        const inTopBand =
+          rect.top <= 100 &&
+          rect.bottom >= 34 &&
+          rect.height >= 42 &&
+          rect.height <= 160 &&
+          rect.width >= innerWidth * 0.72;
+
+        if (inTopBand) candidates.add(node);
+      }
+    }
 
     let best = null;
-    let fallback = null;
-    let node = shareControl;
+    const rankedCandidates = Array.from(candidates).sort((a, b) => {
+      const ar = a.getBoundingClientRect();
+      const br = b.getBoundingClientRect();
 
-    // Prefer the real full-width top header, not the narrower right-hand
-    // action container. The latter starts at the chat/content column and was
-    // the reason the top-left of the conversation remained exposed.
-    const edgeTolerance = Math.max(12, innerWidth * 0.02);
+      const aFull =
+        ar.left <= edgeTolerance &&
+        ar.right >= innerWidth - edgeTolerance &&
+        ar.width >= innerWidth * 0.96;
+      const bFull =
+        br.left <= edgeTolerance &&
+        br.right >= innerWidth - edgeTolerance &&
+        br.width >= innerWidth * 0.96;
 
-    for (let depth = 0; node && depth < 12; depth++, node = node.parentElement) {
-      if (node === document.body || node === document.documentElement) break;
+      if (aFull !== bFull) return aFull ? -1 : 1;
+      if (Math.abs(ar.width - br.width) > 2) return br.width - ar.width;
+      return ar.height - br.height;
+    });
 
-      const rect = node.getBoundingClientRect();
-      const interactiveCount = node.querySelectorAll(
-        "button, [role='button'], a"
-      ).length;
-
-      const inTopBand =
-        rect.top <= 100 &&
-        rect.bottom >= 34 &&
-        rect.height >= 42 &&
-        rect.height <= 130 &&
-        interactiveCount >= 3;
-
-      if (!inTopBand) continue;
-
-      const spansMostOfScreen = rect.width >= innerWidth * 0.78;
-      if (!fallback && spansMostOfScreen) fallback = node;
-
-      const reachesLeftEdge = rect.left <= edgeTolerance;
-      const reachesRightEdge = rect.right >= innerWidth - edgeTolerance;
-      const spansFullScreen =
-        rect.width >= innerWidth * 0.96 &&
-        reachesLeftEdge &&
-        reachesRightEdge;
-
-      if (spansFullScreen) {
-        best = node;
-        break;
-      }
-    }
+    if (rankedCandidates.length) best = rankedCandidates[0];
 
     if (!best) {
-      const header = shareControl.closest("header");
-      if (header) {
-        const rect = header.getBoundingClientRect();
-        const reachesBothEdges =
-          rect.left <= edgeTolerance &&
-          rect.right >= innerWidth - edgeTolerance;
-        if (reachesBothEdges) best = header;
-      }
+      const header = rowControls
+        .map((element) => element.closest("header"))
+        .find(Boolean);
+      if (header) best = header;
     }
 
-    if (!best) best = fallback;
-    if (!best) return false;
+    // Scaling must still apply even if ChatGPT changes the header container
+    // markup. In that case leave its native white background alone.
+    if (!best) return true;
 
     for (const old of document.querySelectorAll(".cg-ios16-solid-topbar")) {
       if (old !== best) old.classList.remove("cg-ios16-solid-topbar");
     }
 
     const bestRect = best.getBoundingClientRect();
-    const shareRect = shareControl.getBoundingClientRect();
 
-    // Keep only controls that belong to the same visible top row as Share.
-    // The background ends at the exact bottom edge of that row instead of
-    // following the taller header/container box.
-    const rowControls = Array.from(best.querySelectorAll(
-      "button, [role='button'], a"
-    )).filter((element) => {
-      const rect = element.getBoundingClientRect();
-      if (rect.width < 20 || rect.height < 20) return false;
-      const centerY = rect.top + rect.height / 2;
-      const shareCenterY = shareRect.top + shareRect.height / 2;
-      return Math.abs(centerY - shareCenterY) <= 18;
-    });
-
-    // Enlarge only the controls on the same visible top row as Share.
-    // Keep the layout positions intact and scale the rendered controls by 30%.
-    // Removing stale markers prevents controls from another header state from
-    // remaining enlarged after ChatGPT rerenders the top bar.
-    for (const old of document.querySelectorAll(".cg-ios16-topbar-control")) {
-      if (!rowControls.includes(old)) old.classList.remove("cg-ios16-topbar-control");
-    }
-    for (const element of rowControls) {
-      element.classList.add("cg-ios16-topbar-control");
-    }
-
-    // getBoundingClientRect() includes the CSS transform above, so calculate
-    // the white bar cutoff after the controls have been enlarged. Ceil the
-    // result to avoid a sub-pixel hairline gap under the scaled controls.
-    const scaledShareRect = shareControl.getBoundingClientRect();
+    // getBoundingClientRect() includes the 1.30x transform, so this cutoff is
+    // measured after scaling. Use the whole detected row for the white strip:
+    // on the home page this also respects the untouched Chat/Work switch.
     const rowBottom = rowControls.reduce(
       (bottom, element) => Math.max(bottom, element.getBoundingClientRect().bottom),
-      scaledShareRect.bottom
+      bestRect.top
     );
 
     const cutoff = Math.max(
@@ -199,10 +266,11 @@
       Math.min(bestRect.height, Math.ceil(rowBottom - bestRect.top))
     );
 
-    // Use the actual rendered/composited colour of the Share button. This
-    // preserves an exact visual match even if ChatGPT implements the button
-    // with a translucent colour over another surface.
-    best.style.setProperty("--cg-ios16-topbar-bg", renderedBackgroundColor(shareControl));
+    const backgroundProbe = shareControl || scaleControls[0] || best;
+    best.style.setProperty(
+      "--cg-ios16-topbar-bg",
+      renderedBackgroundColor(backgroundProbe)
+    );
     best.style.setProperty("--cg-ios16-topbar-cutoff", `${cutoff}px`);
 
     best.classList.add("cg-ios16-solid-topbar");
