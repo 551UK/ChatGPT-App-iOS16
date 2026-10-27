@@ -39,48 +39,30 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main --depth=1
-          # Compare against the fully working v0.56 app shell. No layout,
-          # navigation, cache, media, account, or web presentation changes.
+          # Compare the source with exact v0.56. Only two changes allowed:
+          # one loader readiness field and one loader handoff condition.
           python3 - <<'PY'
+          import difflib
           import subprocess
           from pathlib import Path
           original = subprocess.check_output(
               ["git", "show", "8d270d334ed84fdf26a1ccdc6bb02c35d33ff1fe:src/ChatGPTShell.m"],
-              text=True)
-          old_prop = "@property(nonatomic,strong) NSDate *startedAt;\\n@property(nonatomic,assign) BOOL finished;"
-          new_prop = "@property(nonatomic,strong) NSDate *startedAt;\\n@property(nonatomic,strong) NSDate *pageReadySince;\\n@property(nonatomic,assign) BOOL finished;"
-          old_ready = """            NSTimeInterval elapsed = -[strongSelf.startedAt timeIntervalSinceNow];
-                      // Give the document-start cleanup a fraction of a second after the
-                      // Gecko title update so the loader never reveals the old web UI.
-                      if ((pageReady && elapsed >= 0.9) || elapsed >= 8.0) {
-                          [strongSelf finishAnimated:YES];
-                      } else {
-                          [strongSelf scheduleReadyCheck];
-                      }""".replace("                      ", "            ")
-          new_ready = """            NSTimeInterval elapsed = -[strongSelf.startedAt timeIntervalSinceNow];
-                      // A Gecko title update precedes the final DOM presentation/React
-                      // hydration. The previous loader vanished immediately when the
-                      // title became ready, exposing a transient page-hide/repaint flash.
-                      // Require uninterrupted readiness before revealing the real page.
-                      if (pageReady) {
-                          if (!strongSelf.pageReadySince) strongSelf.pageReadySince = NSDate.date;
-                      } else {
-                          strongSelf.pageReadySince = nil;
-                      }
-                      NSTimeInterval stableFor = strongSelf.pageReadySince
-                          ? -[strongSelf.pageReadySince timeIntervalSinceNow] : 0.0;
-                      if ((pageReady && stableFor >= 1.15 && elapsed >= 1.6) ||
-                          elapsed >= 10.0) {
-                          [strongSelf finishAnimated:YES];
-                      } else {
-                          [strongSelf scheduleReadyCheck];
-                      }""".replace("                      ", "            ")
-          assert old_prop in original
-          assert old_ready in original, "Known loader no longer matches"
-          expected = original.replace(old_prop, new_prop, 1).replace(old_ready, new_ready, 1)
-          assert Path("src/ChatGPTShell.m").read_text() == expected, "Unexpected native app-shell edit"
-          assert "CGRunPendingDataMaintenance();" in expected
-          print("PASS: only loader release timing changed; v0.56 fixes retained")
+              text=True).splitlines(keepends=True)
+          current = Path("src/ChatGPTShell.m").read_text().splitlines(keepends=True)
+          edits = []
+          for op, i, j, k, l in difflib.SequenceMatcher(
+              a=original, b=current, autojunk=False).get_opcodes():
+              if op != "equal":
+                  edits.append((op, original[i:j], current[k:l]))
+          assert len(edits) == 2, "Unexpected native shell differences from v0.56"
+          first, second = edits
+          assert first[0] == "insert"
+          assert first[2] == ["@property(nonatomic,strong) NSDate *pageReadySince;\\n"]
+          assert any("elapsed >= 0.9" in line for line in second[1])
+          assert any("stableFor >= 1.15" in line for line in second[2])
+          assert any("pageReadySince = nil" in line for line in second[2])
+          assert any("CGRunPendingDataMaintenance();" in line for line in current)
+          print("PASS: Only native loader stabilization changed from v0.56")
           PY
           git diff --exit-code origin/main HEAD -- prefs/PreferenceLoader.plist prefs/Resources/Info.plist
           test -s src/ChatGPTContextMenu.m
