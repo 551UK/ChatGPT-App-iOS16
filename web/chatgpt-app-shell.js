@@ -11,7 +11,7 @@
     "  position: fixed !important;",
     "  left: 18px !important;",
     "  right: 18px !important;",
-    "  bottom: env(safe-area-inset-bottom, 0px) !important;",
+    "  bottom: 6px !important;",
     "  top: auto !important;",
     "  width: auto !important;",
     "  max-width: 760px !important;",
