@@ -1,8 +1,8 @@
-name: Build ChatGPT (Gecko iOS16)
+name: Build ChatGPT App (iOS 16)
 
 on:
   push:
-    branches: [settings-rebuild-from-0.22]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -178,8 +178,44 @@ jobs:
           # The actual Settings loading and icon rendering must still be device-tested.
       - uses: actions/upload-artifact@v4
         with:
-          name: ChatGPT-Gecko-iOS16
-          path: |
-            dist/ChatGPT-Gecko-iOS16.ipa
-            dist/*.deb
+          name: ChatGPT-0.19.0-27-DEB
+          path: dist/com.551uk.chatgptgecko_0.19.0-27_iphoneos-arm64.deb
           if-no-files-found: error
+
+      - name: Publish single RELEASE DEB and clean obsolete refs
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin main --depth=1
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo "Skipping outdated release build"
+            exit 0
+          fi
+
+          # Remove every existing GitHub release first so only one current
+          # RELEASE DEB remains.
+          mapfile -t RELEASE_TAGS < <(gh release list --limit 100 --json tagName --jq '.[].tagName')
+          for TAG in "${RELEASE_TAGS[@]}"; do
+            [ -n "$TAG" ] || continue
+            gh release delete "$TAG" --yes || true
+          done
+
+          # Remove all existing tags and recreate one stable 'release' tag.
+          while read -r _ REF; do
+            [ -n "$REF" ] || continue
+            TAG="${REF#refs/tags/}"
+            git push origin ":refs/tags/$TAG" || true
+          done < <(git ls-remote --tags --refs origin)
+
+          git tag -f release "$GITHUB_SHA"
+          git push origin refs/tags/release --force
+
+          gh release create release             dist/com.551uk.chatgptgecko_0.19.0-27_iphoneos-arm64.deb             --title 'RELEASE DEB'             --latest
+
+          # Keep only main and the two explicitly preserved known-good branches.
+          for BRANCH in bottom-nav-v10 settings-rebuild-from-0.22; do
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/$BRANCH" >/dev/null 2>&1 || true
+          done
