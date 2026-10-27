@@ -57,7 +57,7 @@ jobs:
           assert len(edits) == 2, "Unexpected native shell differences from v0.56"
           first, second = edits
           assert first[0] == "insert"
-          assert first[2] == ["@property(nonatomic,strong) NSDate *pageReadySince;\\n"]
+          assert len(first[2]) == 1 and first[2][0].strip() == "@property(nonatomic,strong) NSDate *pageReadySince;"
           assert any("elapsed >= 0.9" in line for line in second[1])
           assert any("stableFor >= 1.15" in line for line in second[2])
           assert any("pageReadySince = nil" in line for line in second[2])
