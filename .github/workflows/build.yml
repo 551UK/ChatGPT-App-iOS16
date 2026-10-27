@@ -68,7 +68,9 @@ jobs:
           assert "CGWriteClearMask(incomplete)" not in data, "Failed categories must not be requeued"
           assert data.count("CGWriteClearMask(0)") == 1, "Unexpected other mask changes"
           import difflib
-          diffs=[(op,original_data[i:j],data[k:l]) for op,i,j,k,l in difflib.SequenceMatcher(a=original_data.splitlines(keepends=True),b=data.splitlines(keepends=True),autojunk=False).get_opcodes() if op!="equal"]
+          before_lines=original_data.splitlines(keepends=True)
+          after_lines=data.splitlines(keepends=True)
+          diffs=[(op,before_lines[i:j],after_lines[k:l]) for op,i,j,k,l in difflib.SequenceMatcher(a=before_lines,b=after_lines,autojunk=False).get_opcodes() if op!="equal"]
           assert len(diffs)==3, f"Unexpected cleanup source changes: {len(diffs)}"
           assert "Individual selected categories can be retried" in "".join(diffs[0][1])
           assert "Consume the request BEFORE touching any files" in "".join(diffs[1][2])
