@@ -46,7 +46,7 @@ python3 "$ROOT/scripts/icon.py" "$APP"
 
 # Bundle a plain ChatGPT knot image for the native startup spinner.
 curl -fLsS --retry 4 --retry-delay 2 \
-  "https://commons.wikimedia.org/wiki/Special:Redirect/file/ChatTransparent.png" \
+  "https://i.logos-download.com/114223/31076-s640-9e4b46076f911162aebfdb80fad3fef6.png/ChatGPT_Logo_2024-s640.png?dl=" \
   -o "$APP/StartupLoaderIcon.png"
 
 
