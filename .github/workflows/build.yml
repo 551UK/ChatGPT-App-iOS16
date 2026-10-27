@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-6_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-7_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
@@ -56,12 +56,15 @@ jobs:
           PY
           grep -Fq 'CGControllerDidLayout' src/ChatGPTShell.m
           grep -Fq 'CGAlwaysHideChrome' src/ChatGPTShell.m
-          grep -Fq 'ChatGPTVoiceBack' src/ChatGPTShell.m
-          grep -Fq 'ChatGPTNewChat' src/ChatGPTShell.m
+          grep -Fq 'ChatGPTBottomNavigation' src/ChatGPTShell.m
+          grep -Fq 'ChatGPTBackButton' src/ChatGPTShell.m
+          grep -Fq 'ChatGPTForwardButton' src/ChatGPTShell.m
           grep -Fq 'CGChromeSafeAreaInsets' src/ChatGPTShell.m
           grep -Fq 'CGZeroBottomToolbarFrame' src/ChatGPTShell.m
           grep -Fq 'CGPreallowChatGPTMicrophoneSite' src/ChatGPTShell.m
           ! grep -Fq 'ChatGPTAppOptions' src/ChatGPTShell.m
+          ! grep -Fq 'ChatGPTNewChat' src/ChatGPTShell.m
+          ! grep -Fq 'composeButton' src/ChatGPTShell.m
           grep -Fq 'Reynard-Jailbroken.ipa' scripts/package.sh
           # The actual runtime navigation/microphone UI must be device-tested.
       - uses: actions/upload-artifact@v4
@@ -83,7 +86,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-6. Starts interface work with an official-style fixed New Chat compose button while preserving ChatGPT's working web sidebar/login. Pre-allows chatgpt.com's Gecko microphone site permission and explicitly requests iOS microphone authorization when the app becomes active. Fixes the unused bottom strip by making Reynard's hidden BottomToolbar and minimized toolbar report zero layout height to Gecko. URL/tab browser chrome remains hidden; voice-only back navigation remains. Rootless Dopamine DEB plus test IPA."
+          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-7. Removes the fixed New Chat icon entirely. Adds a minimal ChatGPT-themed bottom navigation strip with only Back on the far left and Forward on the far right, using native chevrons and subtle system styling. The ChatGPT web page fills the full area above this strip; Reynard URL/tab/share chrome remains hidden. Keeps the working microphone preallow + iOS permission behavior unchanged. Rootless Dopamine DEB plus test IPA."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
