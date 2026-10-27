@@ -8,6 +8,7 @@
 #import <objc/message.h>
 #import <AVFoundation/AVFoundation.h>
 #import <QuartzCore/QuartzCore.h>
+#import <math.h>
 
 static NSString *const CGBundleID = @"com.551uk.chatgptios16";
 static NSString *const CGHomeURL = @"https://chatgpt.com/";
@@ -17,7 +18,9 @@ static IMP CGOriginalControllerLayout = NULL;
 static IMP CGOriginalControllerAppear = NULL;
 static IMP CGOriginalUIViewSetHidden = NULL;
 static IMP CGOriginalUIViewBounds = NULL;
+static IMP CGOriginalUIViewSetTransform = NULL;
 static BOOL CGHooksInstalled = NO;
+static BOOL CGKeyboardVisible = NO;
 static const void *CGConstraintsAdjustedKey = &CGConstraintsAdjustedKey;
 static const void *CGLayoutPendingKey = &CGLayoutPendingKey;
 static const void *CGToolbarRelayoutKey = &CGToolbarRelayoutKey;
@@ -26,6 +29,29 @@ static const void *CGStartupOverlayKey = &CGStartupOverlayKey;
 static BOOL CGIsOurApp(void) {
     return [[[NSBundle mainBundle] bundleIdentifier] isEqualToString:CGBundleID];
 }
+
+static void CGArmKeyboardTracking(void) {
+    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    [center addObserverForName:UIKeyboardWillShowNotification
+                        object:nil
+                         queue:NSOperationQueue.mainQueue
+                    usingBlock:^(__unused NSNotification *note) {
+        CGKeyboardVisible = YES;
+    }];
+    [center addObserverForName:UIKeyboardWillHideNotification
+                        object:nil
+                         queue:NSOperationQueue.mainQueue
+                    usingBlock:^(__unused NSNotification *note) {
+        CGKeyboardVisible = NO;
+    }];
+    [center addObserverForName:UIKeyboardDidHideNotification
+                        object:nil
+                         queue:NSOperationQueue.mainQueue
+                    usingBlock:^(__unused NSNotification *note) {
+        CGKeyboardVisible = NO;
+    }];
+}
+
 
 static void CGPreallowChatGPTMicrophoneSite(void) {
     NSArray<NSString *> *dirs = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
@@ -425,7 +451,53 @@ static CGRect CGBottomToolbarBounds(UIView *self, SEL cmd) {
     return bounds;
 }
 
+static void CGContentViewSetTransform(UIView *self, SEL cmd, CGAffineTransform requested) {
+    // Reynard has a browser-specific "focused input relocation" path that
+    // translates its entire ContentView upward when the keyboard appears.
+    // ChatGPT already lays its composer out against the iOS keyboard, so that
+    // second relocation creates the large blank strip seen above the keyboard.
+    //
+    // Suppress only a pure upward Y translation while the keyboard is visible.
+    // Horizontal/history transforms and all non-keyboard transforms remain
+    // untouched.
+    BOOL pureTranslation =
+      fabs(requested.a - 1.0) < 0.001 &&
+      fabs(requested.b) < 0.001 &&
+      fabs(requested.c) < 0.001 &&
+      fabs(requested.d - 1.0) < 0.001 &&
+      fabs(requested.tx) < 0.5;
+
+    if (CGIsOurApp() && CGKeyboardVisible && pureTranslation && requested.ty < -0.5) {
+        requested = CGAffineTransformIdentity;
+    }
+
+    if (CGOriginalUIViewSetTransform) {
+        ((void (*)(id,SEL,CGAffineTransform))CGOriginalUIViewSetTransform)(self, cmd, requested);
+    }
+}
+
+static void CGInstallFocusedInputRelocationSuppression(void) {
+    static BOOL installed = NO;
+    if (installed || !CGIsOurApp()) return;
+
+    Class contentView = NSClassFromString(@"Reynard.ContentView");
+    if (!contentView) contentView = NSClassFromString(@"_TtC7Reynard11ContentView");
+    if (!contentView) return;
+
+    Method transformMethod = class_getInstanceMethod(UIView.class, @selector(setTransform:));
+    if (!transformMethod) return;
+
+    CGOriginalUIViewSetTransform = method_getImplementation(transformMethod);
+    class_replaceMethod(contentView,
+                        @selector(setTransform:),
+                        (IMP)CGContentViewSetTransform,
+                        method_getTypeEncoding(transformMethod));
+    installed = YES;
+    NSLog(@"[ChatGPTGecko] Reynard focused-input keyboard relocation suppressed");
+}
+
 static void CGInstallChromeSuppression(void) {
+    CGInstallFocusedInputRelocationSuppression();
     static BOOL installed = NO;
     if (installed) return;
 
@@ -611,6 +683,7 @@ static void CGStart(void) {
         CGEnsureStartupTab();
         CGInstallHooks();
         CGArmIOSMicrophonePrompt();
+        CGArmKeyboardTracking();
         dispatch_async(dispatch_get_main_queue(), ^{ CGInstallChromeSuppression(); });
     }
 }
