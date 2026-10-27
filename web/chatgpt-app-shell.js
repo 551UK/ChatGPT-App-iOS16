@@ -19,18 +19,6 @@
   const styleText = [
     "html[data-cg-ios16-preparing='1'] { visibility: hidden !important; }",
     ".cg-ios16-hide { display: none !important; }",
-    ".cg-ios16-composer {",
-    "  position: fixed !important;",
-    "  left: 18px !important;",
-    "  right: 18px !important;",
-    "  bottom: env(safe-area-inset-bottom, 0px) !important;",
-    "  top: auto !important;",
-    "  width: auto !important;",
-    "  max-width: 760px !important;",
-    "  margin-left: auto !important;",
-    "  margin-right: auto !important;",
-    "  z-index: 2147482000 !important;",
-    "}"
   ].join("\n");
 
   function installStyle() {
@@ -109,55 +97,6 @@
     }
   }
 
-  function findComposerInput() {
-    const candidates = [
-      ...document.querySelectorAll("textarea, [contenteditable='true'], input")
-    ];
-    return candidates.find((element) => {
-      const text = [
-        element.getAttribute("placeholder"),
-        element.getAttribute("aria-label"),
-        element.getAttribute("data-placeholder")
-      ].filter(Boolean).join(" ");
-      return /ask chatgpt/i.test(text);
-    }) || null;
-  }
-
-  function moveComposerDown() {
-    const input = findComposerInput();
-    if (!input) return;
-
-    let best = null;
-
-    // The form is the safest stable wrapper on current ChatGPT mobile pages.
-    const form = input.closest("form");
-    if (form) {
-      const rect = form.getBoundingClientRect();
-      if (rect.width >= innerWidth * 0.68 && rect.height >= 42 && rect.height <= 180) {
-        best = form;
-      }
-    }
-
-    // Fall back to the rounded visual composer wrapper if the page changes.
-    if (!best) {
-      let node = input;
-      for (let depth = 0; node && depth < 9; depth++, node = node.parentElement) {
-        const rect = node.getBoundingClientRect();
-        if (rect.width >= innerWidth * 0.70 && rect.height >= 42 && rect.height <= 150) {
-          best = node;
-          const radius = parseFloat(getComputedStyle(node).borderRadius) || 0;
-          if (radius >= 18) break;
-        }
-      }
-    }
-    if (!best) return;
-
-    for (const old of document.querySelectorAll(".cg-ios16-composer")) {
-      if (old !== best) old.classList.remove("cg-ios16-composer");
-    }
-    best.classList.add("cg-ios16-composer");
-  }
-
   let revealed = false;
   function revealCleanPage() {
     if (revealed) return;
@@ -174,7 +113,6 @@
     installStyle();
     hideSuggestion();
     hideDisclaimers();
-    moveComposerDown();
     if (document.body) revealCleanPage();
   }
 
