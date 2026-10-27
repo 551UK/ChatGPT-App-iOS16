@@ -10,10 +10,12 @@
 
 static NSString *const CGBundleID = @"com.551uk.chatgptgecko";
 static NSString *const CGHomeURL = @"https://chatgpt.com/";
-static IMP CGOriginalLayout = NULL;
-static BOOL CGHookInstalled = NO;
-static NSInteger CGInstallAttempts = 0;
+static IMP CGOriginalControllerLayout = NULL;
+static IMP CGOriginalControllerAppear = NULL;
+static IMP CGOriginalUIViewSetHidden = NULL;
+static BOOL CGHooksInstalled = NO;
 static const void *CGConstraintsAdjustedKey = &CGConstraintsAdjustedKey;
+static const void *CGLayoutPendingKey = &CGLayoutPendingKey;
 
 static BOOL CGIsOurApp(void) {
     return [[[NSBundle mainBundle] bundleIdentifier] isEqualToString:CGBundleID];
@@ -260,35 +262,88 @@ static UIView *CGFindNamedView(UIView *root, NSString *fragment) {
 
 static const void *CGAppActionsKey = &CGAppActionsKey;
 
-static void CGApplyAppLayout(UIViewController *controller) {
-    if (!controller.isViewLoaded) return;
-    UIView *root = controller.view;
-    UIView *content = CGFindNamedView(root, @"ContentView");
-    UIView *chrome = CGFindNamedView(root, @"BrowserChrome");
-    UIView *overview = CGFindNamedView(root, @"TabOverview");
-    if (!content || content == root || !chrome) return;
+// The Swift controller's own viewDidLayoutSubviews may not be reachable when
+// the dylib constructor first runs. Hook UIViewController's *super* callbacks
+// instead: the upstream BrowserViewController explicitly calls super from its
+// appearance and layout methods. This also covers late-loaded Swift classes.
+static BOOL CGIsBrowserController(id controller) {
+    if (!CGIsOurApp() || ![controller isKindOfClass:UIViewController.class]) return NO;
+    NSString *name = NSStringFromClass([controller class]);
+    return [name isEqualToString:@"Reynard.BrowserViewController"] ||
+           [name hasSuffix:@".BrowserViewController"] ||
+           [name isEqualToString:@"_TtC7Reynard21BrowserViewController"];
+}
 
-    // Do not force frames/translatesAutoresizingMaskIntoConstraints on a Swift
-    // ContentView: Reynard controls its Gecko view using Auto Layout. Changing
-    // that view to manual-frame mode can prevent Gecko from ever painting.
-    // Replace only root-level chrome-dependent constraints with safe-area
-    // constraints; leave every descendant Gecko constraint untouched.
-    if (![objc_getAssociatedObject(content, CGConstraintsAdjustedKey) boolValue]) {
-        for (NSLayoutConstraint *constraint in root.constraints.copy) {
-            if (constraint.firstItem == content || constraint.secondItem == content) {
-                constraint.active = NO;
-            }
-        }
+// Keep browser navigation UI suppressed even when Reynard's Swift layout
+// updates set .isHidden=false later. class_addMethod prevents accidentally
+// replacing UIView's inherited implementation for every view in the process.
+static void CGAlwaysHideChrome(UIView *self, SEL cmd, BOOL requested) {
+    if (CGOriginalUIViewSetHidden) {
+        ((void (*)(id,SEL,BOOL))CGOriginalUIViewSetHidden)(self, cmd, CGIsOurApp() ? YES : requested);
+    }
+}
+static void CGInstallChromeSuppression(void) {
+    static BOOL installed = NO;
+    if (installed) return;
+    Class browserChrome = NSClassFromString(@"Reynard.BrowserChrome");
+    Class overview = NSClassFromString(@"Reynard.TabOverview");
+    if (!browserChrome || !overview) return;
+    CGOriginalUIViewSetHidden = method_getImplementation(class_getInstanceMethod(UIView.class, @selector(setHidden:)));
+    BOOL a = class_addMethod(browserChrome, @selector(setHidden:), (IMP)CGAlwaysHideChrome, "v@:B");
+    BOOL b = class_addMethod(overview, @selector(setHidden:), (IMP)CGAlwaysHideChrome, "v@:B");
+    // If upstream adds its own setHidden: override, don't override unknown
+    // functionality; our appearance/layout enforcement still handles it.
+    NSLog(@"[ChatGPTGecko] Chrome hooks: chrome=%d tabs=%d", a, b);
+    installed = YES;
+}
+
+static void CGApplyAppLayout(UIViewController *controller) {
+    if (!CGIsBrowserController(controller) || !controller.isViewLoaded) return;
+    UIView *root = controller.view;
+    UIView *content = nil;
+    UIView *chrome = nil;
+    UIView *overview = nil;
+    // Upstream configureBrowserInterface() adds these three direct children.
+    // Use direct subviews rather than recursively matching an unrelated
+    // ChromeOverlayContentView before locating the real Gecko content.
+    for (UIView *candidate in root.subviews) {
+        NSString *type = NSStringFromClass(candidate.class);
+        if ([type hasSuffix:@".ContentView"]) content = candidate;
+        else if ([type hasSuffix:@".BrowserChrome"]) chrome = candidate;
+        else if ([type hasSuffix:@".TabOverview"]) overview = candidate;
+    }
+    if (!content || !chrome) {
+        NSLog(@"[ChatGPTGecko] Missing native views content=%d chrome=%d", !!content, !!chrome);
+        return;
+    }
+
+    // Keep Gecko's own inner Auto Layout and keyboard constraints intact.
+    // Only replace the ContentView's root placement, which Reynard otherwise
+    // anchors to its bottom toolbar even if that toolbar is hidden.
+    NSArray<NSLayoutConstraint *> *ours = objc_getAssociatedObject(content, CGConstraintsAdjustedKey);
+    if (!ours) {
         content.translatesAutoresizingMaskIntoConstraints = NO;
-        [NSLayoutConstraint activateConstraints:@[
+        ours = @[
             [content.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
             [content.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
             [content.topAnchor constraintEqualToAnchor:root.safeAreaLayoutGuide.topAnchor],
             [content.bottomAnchor constraintEqualToAnchor:root.safeAreaLayoutGuide.bottomAnchor]
-        ]];
-        objc_setAssociatedObject(content, CGConstraintsAdjustedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        ];
+        objc_setAssociatedObject(content, CGConstraintsAdjustedKey, ours, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
+    // Reynard reapplies its native ContentView top/bottom anchors whenever
+    // address-bar mode changes. Retire those root-level constraints each pass,
+    // leaving our four safe-area constraints and every Gecko child untouched.
+    for (NSLayoutConstraint *constraint in root.constraints.copy) {
+        if ((constraint.firstItem == content || constraint.secondItem == content) &&
+            ![ours containsObject:constraint] && constraint.active) {
+            constraint.active = NO;
+        }
+    }
+    [NSLayoutConstraint activateConstraints:ours];
 
+    // Hide both native top URL and bottom toolbar as one BrowserChrome view.
+    // Do not remove them: Reynard's layout methods still reference anchors.
     chrome.hidden = YES;
     chrome.userInteractionEnabled = NO;
     if (overview) {
@@ -301,13 +356,35 @@ static void CGApplyAppLayout(UIViewController *controller) {
         actions = [CGAppActions new];
         objc_setAssociatedObject(controller, CGAppActionsKey, actions, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         [actions installInController:controller];
+        NSLog(@"[ChatGPTGecko] Native website shell attached");
     }
     [actions updateLayout];
 }
 
-static void CGBrowserDidLayout(id self, SEL _cmd) {
-    if (CGOriginalLayout) ((void (*)(id, SEL))CGOriginalLayout)(self, _cmd);
-    CGApplyAppLayout((UIViewController *)self);
+// Schedule after the upstream override finishes laying out browser chrome.
+static void CGScheduleAppLayout(UIViewController *controller) {
+    if (!CGIsBrowserController(controller)) return;
+    if ([objc_getAssociatedObject(controller, CGLayoutPendingKey) boolValue]) return;
+    objc_setAssociatedObject(controller, CGLayoutPendingKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    __weak UIViewController *weakController = controller;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController *strongController = weakController;
+        if (!strongController) return;
+        objc_setAssociatedObject(strongController, CGLayoutPendingKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        CGInstallChromeSuppression();
+        CGApplyAppLayout(strongController);
+    });
+}
+
+static void CGControllerDidLayout(id controller, SEL cmd) {
+    if (CGOriginalControllerLayout) ((void (*)(id,SEL))CGOriginalControllerLayout)(controller, cmd);
+    CGScheduleAppLayout(controller);
+}
+
+static void CGControllerDidAppear(id controller, SEL cmd, BOOL animated) {
+    if (CGOriginalControllerAppear) ((void (*)(id,SEL,BOOL))CGOriginalControllerAppear)(controller, cmd, animated);
+    CGInstallChromeSuppression();
+    CGScheduleAppLayout(controller);
 }
 
 static void CGConfigurePreferences(void) {
@@ -322,22 +399,17 @@ static void CGConfigurePreferences(void) {
     [prefs synchronize];
 }
 
-static void CGInstallHook(void) {
-    if (!CGIsOurApp() || CGHookInstalled) return;
-    Class cls = NSClassFromString(@"Reynard.BrowserViewController");
-    if (!cls) cls = objc_getClass("_TtC7Reynard21BrowserViewController");
-    Method method = cls ? class_getInstanceMethod(cls, @selector(viewDidLayoutSubviews)) : NULL;
-    if (method) {
-        CGOriginalLayout = method_getImplementation(method);
-        if (CGOriginalLayout != (IMP)CGBrowserDidLayout)
-            method_setImplementation(method, (IMP)CGBrowserDidLayout);
-        CGHookInstalled = YES;
-        NSLog(@"[ChatGPTGecko] Browser chrome suppression installed");
-        return;
-    }
-    if (++CGInstallAttempts < 40)
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{ CGInstallHook(); });
+static void CGInstallHooks(void) {
+    if (!CGIsOurApp() || CGHooksInstalled) return;
+    Method layout = class_getInstanceMethod(UIViewController.class, @selector(viewDidLayoutSubviews));
+    Method appear = class_getInstanceMethod(UIViewController.class, @selector(viewDidAppear:));
+    if (!layout || !appear) return;
+    CGOriginalControllerLayout = method_getImplementation(layout);
+    CGOriginalControllerAppear = method_getImplementation(appear);
+    method_setImplementation(layout, (IMP)CGControllerDidLayout);
+    method_setImplementation(appear, (IMP)CGControllerDidAppear);
+    CGHooksInstalled = YES;
+    NSLog(@"[ChatGPTGecko] Global controller super-hooks installed");
 }
 
 __attribute__((constructor))
@@ -346,6 +418,7 @@ static void CGStart(void) {
         if (!CGIsOurApp()) return;
         CGConfigurePreferences();
         CGEnsureStartupTab();
-        dispatch_async(dispatch_get_main_queue(), ^{ CGInstallHook(); });
+        CGInstallHooks();
+        dispatch_async(dispatch_get_main_queue(), ^{ CGInstallChromeSuppression(); });
     }
 }
