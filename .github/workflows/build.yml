@@ -2,7 +2,7 @@ name: Build ChatGPT App (iOS 16)
 
 on:
   push:
-    branches: [promo-suppression-v28]
+    branches: [download-overlay-v29]
   workflow_dispatch:
 
 concurrency:
@@ -35,13 +35,13 @@ jobs:
           theos-sdks: https://github.com/theos/sdks
           theos-sdks-branch: master
 
-      - name: Prove native runtime and Settings remain unchanged
+      - name: Prove known-good native and Settings code remain unchanged
         run: |
           set -euo pipefail
           git fetch origin main --depth=1
           git diff --exit-code ad1e79623d0b2292c932701d6ab3f9c7b97012c3 HEAD -- src/ChatGPTShell.m
-          git diff --exit-code origin/main HEAD -- src prefs
-          echo "PASS: native ChatGPT shell is exact 0.19.0-22 and Settings/data code matches current main"
+          git diff --exit-code origin/main HEAD -- prefs src/ChatGPTDataMaintenance.m
+          echo "PASS: native ChatGPT shell is exact 0.19.0-22 and working Settings/data code matches current main"
 
       - name: Package Gecko-based ChatGPT app
         run: bash scripts/package.sh
@@ -49,7 +49,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-28_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-29_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/ChatGPTPrefs'
@@ -117,6 +117,16 @@ jobs:
           find build/work/unpacked/Payload/ChatGPT.app -path '*/extensions/readerview/chatgpt-app-shell.js' -type f | grep -q .
           grep -Fq 'Reynard-Jailbroken.ipa' scripts/package.sh
           test -s src/ChatGPTDataMaintenance.m
+          test -s src/ChatGPTDownloadOverlay.m
+          grep -Fq 'DownloadStore.DidChange' src/ChatGPTDownloadOverlay.m
+          grep -Fq 'DownloadStore.DidStartDownload' src/ChatGPTDownloadOverlay.m
+          grep -Fq 'showDownloadsKeyCommand:' src/ChatGPTDownloadOverlay.m
+          grep -Fq 'UIActivityViewController' src/ChatGPTDownloadOverlay.m
+          grep -Fq 'AppData/DownloadStore' src/ChatGPTDownloadOverlay.m
+          grep -Fq 'Downloading %ld%%' src/ChatGPTDownloadOverlay.m
+          grep -Fq 'Downloaded' src/ChatGPTDownloadOverlay.m
+          grep -Fq 'ToolbarButton' src/ChatGPTDownloadOverlay.m
+          grep -Fq 'ChatGPTDownloadOverlay.m' scripts/package.sh
           grep -Fq 'pendingClearHistory' src/ChatGPTDataMaintenance.m
           grep -Fq 'pendingClearCache' src/ChatGPTDataMaintenance.m
           grep -Fq 'places.history.enabled' src/ChatGPTDataMaintenance.m
@@ -185,6 +195,6 @@ jobs:
           # The actual Settings loading and icon rendering must still be device-tested.
       - uses: actions/upload-artifact@v4
         with:
-          name: ChatGPT-0.19.0-28-PROMO-TEST
-          path: dist/com.551uk.chatgptgecko_0.19.0-28_iphoneos-arm64.deb
+          name: ChatGPT-0.19.0-29-DOWNLOAD-TEST
+          path: dist/com.551uk.chatgptgecko_0.19.0-29_iphoneos-arm64.deb
           if-no-files-found: error
