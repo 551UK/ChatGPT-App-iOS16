@@ -44,12 +44,10 @@ python3 "$ROOT/scripts/inject.py" "$APP/$MAIN_EXE"
 python3 "$ROOT/scripts/rebrand.py" "$APP"
 python3 "$ROOT/scripts/icon.py" "$APP"
 
-# Bundle the user-supplied startup spinner icon as a dedicated loader asset.
-python3 - "$ROOT/assets/startup-icon.b64" "$APP/StartupLoaderIcon.jpg" <<'PY'
-import base64, pathlib, sys
-source = pathlib.Path(sys.argv[1]).read_text().strip()
-pathlib.Path(sys.argv[2]).write_bytes(base64.b64decode(source))
-PY
+# Bundle a plain ChatGPT knot image for the native startup spinner.
+curl -fLsS --retry 4 --retry-delay 2 \
+  "https://commons.wikimedia.org/wiki/Special:Redirect/file/ChatTransparent.png" \
+  -o "$APP/StartupLoaderIcon.png"
 
 
 # Extend Reynard's already-loaded built-in ReaderView WebExtension with a
