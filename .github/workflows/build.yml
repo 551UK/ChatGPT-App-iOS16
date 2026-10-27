@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-3_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-4_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPTGecko.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
@@ -50,8 +50,13 @@ jobs:
           assert app["CFBundleDisplayName"] == "ChatGPT"
           assert "CFBundleURLTypes" not in app, "ChatGPT must never claim Reynard/http/https URL schemes"
           assert helper["CFBundleIdentifier"] == "com.551uk.chatgptgecko.Helper"
-          print("Verified app isolation: separate app/profile/helper, no URL schemes, no share extension")
+          assert "NSMicrophoneUsageDescription" in app
+          assert "NSMicrophoneUsageDescription" in helper
+          print("Verified app isolation: separate app/profile/helper, microphone declarations, no browser URL schemes")
           PY
+          grep -Fq 'CGControllerDidLayout' src/ChatGPTShell.m
+          grep -Fq 'CGAlwaysHideChrome' src/ChatGPTShell.m
+          # The actual runtime navigation/microphone UI must be device-tested.
       - uses: actions/upload-artifact@v4
         with:
           name: ChatGPT-Gecko-iOS16
@@ -71,7 +76,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="Experimental ChatGPT Gecko app for iOS 16. Adds a native options menu (Back to chats, Enable microphone, Reload), left-edge gesture to exit stuck voice views, requests iOS microphone access on user action, and retains independent Gecko app data. Includes rootless DEB and TrollStore IPA. Reynard 0.19.0 / Gecko 158.0.1. Requires testing on device."
+          NOTES="ChatGPT Gecko iOS 16 test v0.19.0-4. Fixes visible Reynard top URL and bottom browser toolbar by enforcing app-only layout on appearance and relayout; preserves ChatGPT web sidebar/chat UI and website microphone prompt behavior. Native options menu includes Back to chats, New chat, iOS microphone and Reload. Rootless DEB for Dopamine and TrollStore IPA. Device verification required."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
