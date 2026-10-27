@@ -20,6 +20,7 @@
     "html[data-cg-ios16-preparing='1'] { visibility: hidden !important; }",
     ".cg-ios16-hide { display: none !important; }",
     ".cg-ios16-solid-topbar { background-color: transparent !important; background-image: linear-gradient(to bottom, var(--cg-ios16-topbar-bg, #eeeef0) 0, var(--cg-ios16-topbar-bg, #eeeef0) var(--cg-ios16-topbar-cutoff, 0px), transparent var(--cg-ios16-topbar-cutoff, 0px), transparent 100%) !important; opacity: 1 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }",
+    ".cg-ios16-topbar-control { transform: scale(1.30) !important; transform-origin: center center !important; }",
   ].join("\n");
 
   function installStyle() {
@@ -173,14 +174,29 @@
       return Math.abs(centerY - shareCenterY) <= 18;
     });
 
+    // Enlarge only the controls on the same visible top row as Share.
+    // Keep the layout positions intact and scale the rendered controls by 30%.
+    // Removing stale markers prevents controls from another header state from
+    // remaining enlarged after ChatGPT rerenders the top bar.
+    for (const old of document.querySelectorAll(".cg-ios16-topbar-control")) {
+      if (!rowControls.includes(old)) old.classList.remove("cg-ios16-topbar-control");
+    }
+    for (const element of rowControls) {
+      element.classList.add("cg-ios16-topbar-control");
+    }
+
+    // getBoundingClientRect() includes the CSS transform above, so calculate
+    // the white bar cutoff after the controls have been enlarged. Ceil the
+    // result to avoid a sub-pixel hairline gap under the scaled controls.
+    const scaledShareRect = shareControl.getBoundingClientRect();
     const rowBottom = rowControls.reduce(
       (bottom, element) => Math.max(bottom, element.getBoundingClientRect().bottom),
-      shareRect.bottom
+      scaledShareRect.bottom
     );
 
     const cutoff = Math.max(
       0,
-      Math.min(bestRect.height, rowBottom - bestRect.top)
+      Math.min(bestRect.height, Math.ceil(rowBottom - bestRect.top))
     );
 
     // Use the actual rendered/composited colour of the Share button. This
