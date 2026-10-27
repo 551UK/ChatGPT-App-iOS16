@@ -2,7 +2,7 @@ name: Build ChatGPT App (iOS 16)
 
 on:
   push:
-    branches: [popup-suppression-v32]
+    branches: [popup-suppression-v32-final]
   workflow_dispatch:
 
 concurrency:
