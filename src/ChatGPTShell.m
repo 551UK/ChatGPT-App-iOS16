@@ -6,6 +6,8 @@
 #import <dispatch/dispatch.h>
 #import <sqlite3.h>
 #import <objc/message.h>
+#import <AVFoundation/AVFoundation.h>
+#import <dlfcn.h>
 
 static NSString *const CGBundleID = @"com.551uk.chatgptios16";
 static NSString *const CGHomeURL = @"https://chatgpt.com/";
@@ -16,9 +18,125 @@ static BOOL CGHooksInstalled = NO;
 static const void *CGConstraintsAdjustedKey = &CGConstraintsAdjustedKey;
 static const void *CGLayoutPendingKey = &CGLayoutPendingKey;
 
+typedef void (*CGBridgeViewFunction)(void *);
+static void *CGBridgeHandle = NULL;
+static CGBridgeViewFunction CGFixViewportFunction = NULL;
+static CGBridgeViewFunction CGLoadHomeFunction = NULL;
+static CGBridgeViewFunction CGGoBackFunction = NULL;
+
+static void CGLoadBridge(void) {
+    if (CGBridgeHandle) return;
+    NSString *path = [[NSBundle mainBundle] pathForResource:@"ChatGPTBridge"
+                                                    ofType:@"dylib"
+                                               inDirectory:@"Frameworks"];
+    if (!path.length) {
+        NSLog(@"[ChatGPTGecko] Missing ChatGPTBridge.dylib");
+        return;
+    }
+    CGBridgeHandle = dlopen(path.UTF8String, RTLD_NOW | RTLD_LOCAL);
+    if (!CGBridgeHandle) {
+        NSLog(@"[ChatGPTGecko] Bridge load failed: %s", dlerror());
+        return;
+    }
+    CGFixViewportFunction = (CGBridgeViewFunction)dlsym(CGBridgeHandle, "CGFixGeckoViewport");
+    CGLoadHomeFunction = (CGBridgeViewFunction)dlsym(CGBridgeHandle, "CGLoadChatGPTHome");
+    CGGoBackFunction = (CGBridgeViewFunction)dlsym(CGBridgeHandle, "CGGoBackInGecko");
+}
+
+static void CGFixGeckoViewport(UIView *root) {
+    CGLoadBridge();
+    if (CGFixViewportFunction) CGFixViewportFunction((__bridge void *)root);
+}
+
+static void CGLoadChatGPTHome(UIView *root) {
+    CGLoadBridge();
+    if (CGLoadHomeFunction) CGLoadHomeFunction((__bridge void *)root);
+}
+
+static BOOL CGGoBackInGecko(UIView *root) {
+    CGLoadBridge();
+    if (!CGGoBackFunction) return NO;
+    CGGoBackFunction((__bridge void *)root);
+    return YES;
+}
+
 static BOOL CGIsOurApp(void) {
     return [[[NSBundle mainBundle] bundleIdentifier] isEqualToString:CGBundleID];
 }
+
+static void CGPreallowChatGPTMicrophoneSite(void) {
+    NSArray<NSString *> *dirs = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
+    if (!dirs.count) return;
+    NSString *dir = [dirs[0] stringByAppendingPathComponent:@"AppData/SitePermissions"];
+    NSError *error = nil;
+    if (![[NSFileManager defaultManager] createDirectoryAtPath:dir
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil error:&error]) {
+        NSLog(@"[ChatGPTGecko] Site permission directory failed: %@", error);
+        return;
+    }
+    NSString *path = [dir stringByAppendingPathComponent:@"SitePermissions"];
+    sqlite3 *db = NULL;
+    if (sqlite3_open_v2(path.UTF8String, &db,
+                        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        return;
+    }
+    sqlite3_busy_timeout(db, 2500);
+    const char *schema =
+      "CREATE TABLE IF NOT EXISTS site_permissions ("
+      "host TEXT NOT NULL, permission_key TEXT NOT NULL, action TEXT NOT NULL, "
+      "updated_at REAL NOT NULL, PRIMARY KEY(host, permission_key));"
+      "CREATE INDEX IF NOT EXISTS idx_site_permissions_permission_key "
+      "ON site_permissions(permission_key);"
+      "CREATE INDEX IF NOT EXISTS idx_site_permissions_updated_at "
+      "ON site_permissions(updated_at);";
+    sqlite3_exec(db, schema, NULL, NULL, NULL);
+    sqlite3_stmt *stmt = NULL;
+    const char *upsert =
+      "INSERT INTO site_permissions(host,permission_key,action,updated_at) "
+      "VALUES('chatgpt.com','microphone','allowed',?) "
+      "ON CONFLICT(host,permission_key) DO UPDATE SET action='allowed', updated_at=excluded.updated_at";
+    if (sqlite3_prepare_v2(db, upsert, -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_double(stmt, 1, NSDate.date.timeIntervalSince1970);
+        sqlite3_step(stmt);
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    NSLog(@"[ChatGPTGecko] chatgpt.com microphone site permission=allowed");
+}
+
+static void CGRequestIOSMicrophoneIfNeeded(void) {
+    AVAuthorizationStatus status =
+      [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
+    if (status != AVAuthorizationStatusNotDetermined) {
+        NSLog(@"[ChatGPTGecko] iOS microphone state=%ld", (long)status);
+        return;
+    }
+    [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio
+                            completionHandler:^(BOOL granted) {
+        NSLog(@"[ChatGPTGecko] iOS microphone prompt result=%d", granted);
+    }];
+}
+
+static void CGArmIOSMicrophonePrompt(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[NSNotificationCenter defaultCenter]
+          addObserverForName:UIApplicationDidBecomeActiveNotification
+                      object:nil
+                       queue:NSOperationQueue.mainQueue
+                  usingBlock:^(__unused NSNotification *note) {
+            CGRequestIOSMicrophoneIfNeeded();
+        }];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            if (UIApplication.sharedApplication.applicationState == UIApplicationStateActive) {
+                CGRequestIOSMicrophoneIfNeeded();
+            }
+        });
+    });
+}
+
 
 // Reynard v0.19.0 creates an about:blank tab on first launch when
 // openingScreen == lastTab, and the customNewTabURL does NOT navigate it.
@@ -153,6 +271,7 @@ static BOOL CGIsVoiceURL(NSString *url) {
 @interface CGAppNavigation : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic,weak) UIViewController *owner;
 @property(nonatomic,strong) UIButton *voiceBackButton;
+@property(nonatomic,strong) UIButton *newChatButton;
 @property(nonatomic,strong) UIScreenEdgePanGestureRecognizer *voiceBackGesture;
 - (void)installInController:(UIViewController *)controller;
 - (void)updateLayout;
@@ -163,9 +282,11 @@ static BOOL CGIsVoiceURL(NSString *url) {
 - (void)returnFromVoice {
     UIViewController *owner = self.owner;
     if (!owner) return;
-    SEL back = NSSelectorFromString(@"goBackKeyCommand:");
-    if ([owner respondsToSelector:back]) {
-        ((void (*)(id,SEL,id))objc_msgSend)(owner, back, nil);
+    if (!CGGoBackInGecko(owner.view)) {
+        SEL back = NSSelectorFromString(@"goBackKeyCommand:");
+        if ([owner respondsToSelector:back]) {
+            ((void (*)(id,SEL,id))objc_msgSend)(owner, back, nil);
+        }
     }
     __weak UIViewController *weakOwner = owner;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
@@ -177,6 +298,13 @@ static BOOL CGIsVoiceURL(NSString *url) {
             ((void (*)(id,SEL,id))objc_msgSend)(strongOwner, newTab, nil);
         }
     });
+}
+
+
+- (void)newChat {
+    UIViewController *owner = self.owner;
+    if (!owner) return;
+    CGLoadChatGPTHome(owner.view);
 }
 
 - (void)voiceBackSwipe:(UIScreenEdgePanGestureRecognizer *)gesture {
@@ -204,6 +332,16 @@ static BOOL CGIsVoiceURL(NSString *url) {
     [controller.view addSubview:back];
     self.voiceBackButton = back;
 
+    UIButton *compose = [UIButton buttonWithType:UIButtonTypeSystem];
+    [compose setImage:[UIImage systemImageNamed:@"square.and.pencil"] forState:UIControlStateNormal];
+    compose.tintColor = UIColor.labelColor;
+    compose.backgroundColor = UIColor.clearColor;
+    compose.accessibilityLabel = @"New chat";
+    compose.accessibilityIdentifier = @"ChatGPTNewChat";
+    [compose addTarget:self action:@selector(newChat) forControlEvents:UIControlEventTouchUpInside];
+    [controller.view addSubview:compose];
+    self.newChatButton = compose;
+
     UIScreenEdgePanGestureRecognizer *gesture =
       [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self action:@selector(voiceBackSwipe:)];
     gesture.edges = UIRectEdgeLeft;
@@ -221,14 +359,23 @@ static BOOL CGIsVoiceURL(NSString *url) {
 
 - (void)updateLayout {
     UIViewController *owner = self.owner;
-    if (!owner.isViewLoaded || !self.voiceBackButton) return;
-    BOOL visible = CGIsVoiceURL(CGSelectedTabURL());
-    self.voiceBackButton.hidden = !visible;
-    self.voiceBackButton.userInteractionEnabled = visible;
-    if (!visible) return;
+    if (!owner.isViewLoaded || !self.voiceBackButton || !self.newChatButton) return;
+    CGFloat width = CGRectGetWidth(owner.view.bounds);
     CGFloat y = owner.view.safeAreaInsets.top + 8;
+
+    // Official-app-style compose control, positioned just left of the site's
+    // login/account area so the web authentication button remains usable.
+    self.newChatButton.frame = CGRectMake(MAX(180, width - 108), y, 38, 38);
+    self.newChatButton.hidden = NO;
+    self.newChatButton.userInteractionEnabled = YES;
+
+    BOOL voiceVisible = CGIsVoiceURL(CGSelectedTabURL());
+    self.voiceBackButton.hidden = !voiceVisible;
+    self.voiceBackButton.userInteractionEnabled = voiceVisible;
     self.voiceBackButton.frame = CGRectMake(12, y, 38, 38);
-    [owner.view bringSubviewToFront:self.voiceBackButton];
+
+    [owner.view bringSubviewToFront:self.newChatButton];
+    if (voiceVisible) [owner.view bringSubviewToFront:self.voiceBackButton];
 }
 @end
 
@@ -323,6 +470,11 @@ static void CGApplyAppLayout(UIViewController *controller) {
         overview.userInteractionEnabled = NO;
     }
     [root bringSubviewToFront:content];
+    CGFixGeckoViewport(root);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.08 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        CGFixGeckoViewport(root);
+    });
     CGAppNavigation *navigation = objc_getAssociatedObject(controller, CGAppNavigationKey);
     if (!navigation) {
         navigation = [CGAppNavigation new];
@@ -368,9 +520,8 @@ static void CGConfigurePreferences(void) {
     [prefs setBool:NO forKey:@"default.HomepageSettings.showsNewUpdates"];
     [prefs setBool:NO forKey:@"default.HomepageSettings.showsFavorites"];
     [prefs setBool:NO forKey:@"default.HomepageSettings.showsFrequentlyVisited"];
-    // Dedicated ChatGPT wrapper: media permissions must follow Reynard's
-    // normal website prompt flow ("Allow chatgpt.com ...?"), never inherit a
-    // browser-wide deny default.
+    // Other sites remain prompt-based; chatgpt.com itself is explicitly
+    // pre-allowed in Reynard's SitePermissionStore database.
     [prefs setObject:@"ask_to_allow" forKey:@"default.SitePermissionSettings.defaultMicrophonePermission"];
     [prefs setObject:@"ask_to_allow" forKey:@"default.SitePermissionSettings.defaultCameraPermission"];
     [prefs synchronize];
@@ -394,8 +545,10 @@ static void CGStart(void) {
     @autoreleasepool {
         if (!CGIsOurApp()) return;
         CGConfigurePreferences();
+        CGPreallowChatGPTMicrophoneSite();
         CGEnsureStartupTab();
         CGInstallHooks();
+        CGArmIOSMicrophonePrompt();
         dispatch_async(dispatch_get_main_queue(), ^{ CGInstallChromeSuppression(); });
     }
 }
