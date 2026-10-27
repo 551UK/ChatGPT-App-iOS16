@@ -9,7 +9,7 @@
         <dict>
             <key>cell</key><string>PSGroupCell</string>
             <key>label</key><string>BROWSING DATA</string>
-            <key>footerText</key><string>Clears only local browser data. Your ChatGPT login and conversations are preserved. Changes apply the next time ChatGPT opens.</string>
+            <key>footerText</key><string>Select what to remove under Clear App Data. Cookies and saved login sessions stay untouched. Changes apply when ChatGPT next launches.</string>
         </dict>
         <dict>
             <key>cell</key><string>PSSwitchCell</string>
@@ -21,15 +21,9 @@
         </dict>
         <dict>
             <key>cell</key><string>PSButtonCell</string>
-            <key>id</key><string>clearHistory</string>
-            <key>label</key><string>Clear Local Browsing History</string>
-            <key>action</key><string>clearHistory:</string>
-        </dict>
-        <dict>
-            <key>cell</key><string>PSButtonCell</string>
-            <key>id</key><string>clearCache</string>
-            <key>label</key><string>Clear Cache</string>
-            <key>action</key><string>clearCache:</string>
+            <key>id</key><string>clearAppData</string>
+            <key>label</key><string>Clear App Data</string>
+            <key>action</key><string>openClearAppData:</string>
         </dict>
 
         <dict>
