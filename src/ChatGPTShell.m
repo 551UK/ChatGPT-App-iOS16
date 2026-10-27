@@ -666,10 +666,7 @@ static void CGStart(void) {
         // The previous independent constructors could run in the reverse order,
         // deleting the newly seeded tab and causing a blank first launch.
         extern void CGRunPendingDataMaintenance(void);
-        extern BOOL CGHasPendingDataClear(void);
-        // A normal launch follows the known-good v0.55 constructor ordering.
-        // When Clear App Data is queued, process it before seeding the tab.
-        if (CGHasPendingDataClear()) CGRunPendingDataMaintenance();
+        CGRunPendingDataMaintenance();
         CGConfigurePreferences();
         CGPreallowChatGPTMicrophoneSite();
         CGEnsureStartupTab();
