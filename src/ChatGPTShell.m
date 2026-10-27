@@ -190,8 +190,9 @@ static void CGEnsureStartupTab(void) {
     NSLog(@"[ChatGPTGecko] Startup tab prepared: %@", chatID ?: @"failure");
 }
 
-// App-style history navigation. Gecko remains the page engine, but Reynard's
-// normal browser chrome stays hidden. Only two small history controls remain.
+// Full-screen app navigation. Gecko remains the page engine and all Reynard
+// browser chrome stays hidden. Navigation is gesture-only: swipe right from
+// the left edge to trigger Gecko history back.
 @interface CGAppNavigation : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic,weak) UIViewController *owner;
 @property(nonatomic,strong) UIScreenEdgePanGestureRecognizer *backGesture;

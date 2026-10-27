@@ -15,9 +15,11 @@ Download the `com.551uk.chatgptgecko_0.19.0-11_iphoneos-arm64.deb` package from 
 
 ## App-style navigation and microphone
 
-The real ChatGPT website remains the conversation engine because it already provides current conversations, attachments, search and account features. Reynard's URL bar, toolbar, tab overview and share controls are hidden. There are **no visible browser/navigation controls** at the bottom. The ChatGPT web area fills the screen to the device bottom, and the **Ask ChatGPT** composer is docked directly to the bottom safe area. Back navigation is gesture-only: swipe right from the left edge to trigger Gecko history Back. There is no Forward control. The Gecko content script hides the small AI/disclaimer footer text and removes the **What can you do?** suggestion button.
+The real ChatGPT website remains the conversation engine because it already provides current conversations, attachments, search and account features. Reynard's URL bar, toolbar, tab overview, share controls and browser branding are hidden. There are **no visible native Back/Forward buttons** and no Forward action. The page fills the screen to the device bottom. Back navigation is gesture-only: swipe right from the left edge to trigger Gecko's history Back.
 
-For this dedicated ChatGPT wrapper, Reynard's **chatgpt.com microphone site permission is pre-allowed** so the browser-level prompt does not have to be repeated. The app explicitly asks iOS for microphone authorization on first active launch when the system state is still Not Determined. iOS itself cannot be silently pre-authorized; the system prompt must still be accepted once. The wrapper overrides Reynard's hidden browser-toolbar geometry so it does not reserve extra blank space. There is no native bottom strip; only ChatGPT's own composer occupies the bottom safe area.
+A Gecko content script cleans the website presentation without replacing ChatGPT's functionality: it removes the **What can you do?** suggestion, hides both small footer/disclaimer variants shown on the home page and active-chat page, and docks the **Ask ChatGPT** composer to the real iOS bottom safe area so it sits like the native app.
+
+For this dedicated ChatGPT wrapper, Reynard's **chatgpt.com microphone site permission is pre-allowed** and the app requests iOS microphone authorization when needed. The microphone flow is left unchanged from the working build. Reynard's invisible toolbar geometry is zeroed so it cannot reserve blank space underneath the page.
 
 ## Building
 
