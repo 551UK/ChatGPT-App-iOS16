@@ -207,6 +207,9 @@ static UIView *CGFindNamedView(UIView *root, NSString *fragment) {
     [sheet addAction:[UIAlertAction actionWithTitle:@"Back to chats" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
         [self returnToChats];
     }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"New chat" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+        [self returnToChats];
+    }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Enable microphone" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
         [self requestMicrophone];
     }]];
