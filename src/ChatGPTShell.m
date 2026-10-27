@@ -190,152 +190,124 @@ static void CGEnsureStartupTab(void) {
     NSLog(@"[ChatGPTGecko] Startup tab prepared: %@", chatID ?: @"failure");
 }
 
-static NSString *CGSelectedTabURL(void) {
-    NSArray<NSString *> *dirs = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
-    if (!dirs.count) return nil;
-    NSString *path = [dirs[0] stringByAppendingPathComponent:@"AppData/TabManagement/TabManagement"];
-    sqlite3 *db = NULL;
-    if (sqlite3_open_v2(path.UTF8String, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, NULL) != SQLITE_OK) {
-        if (db) sqlite3_close(db);
-        return nil;
-    }
-    sqlite3_busy_timeout(db, 150);
-    sqlite3_stmt *stmt = NULL;
-    NSString *url = nil;
-    const char *sql =
-      "SELECT t.url FROM tab_state s "
-      "LEFT JOIN tabs t ON t.id=s.selected_regular_tab_id "
-      "WHERE s.id=1 LIMIT 1";
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK &&
-        sqlite3_step(stmt) == SQLITE_ROW) {
-        const char *v = (const char *)sqlite3_column_text(stmt, 0);
-        if (v) url = [NSString stringWithUTF8String:v];
-    }
-    sqlite3_finalize(stmt);
-    sqlite3_close(db);
-    return url;
-}
-
-static BOOL CGIsVoiceURL(NSString *url) {
-    if (!url.length) return NO;
-    NSString *lower = url.lowercaseString;
-    return [lower containsString:@"/voice"] ||
-           [lower containsString:@"voice-mode"] ||
-           [lower containsString:@"realtime"];
-}
-
-// The normal ChatGPT website header/sidebar remain the primary navigation so
-// all current web features keep working. Native UI is used only as a recovery
-// control on voice routes, matching the official app's back affordance.
-@interface CGAppNavigation : NSObject <UIGestureRecognizerDelegate>
+// Native navigation is deliberately minimal: Gecko still renders the real
+// ChatGPT site, while these two controls provide browser history without
+// exposing Reynard's URL bar, tabs, share controls or browser branding.
+@interface CGAppNavigation : NSObject
 @property(nonatomic,weak) UIViewController *owner;
-@property(nonatomic,strong) UIButton *voiceBackButton;
-@property(nonatomic,strong) UIButton *composeButton;
-@property(nonatomic,strong) UIScreenEdgePanGestureRecognizer *voiceBackGesture;
+@property(nonatomic,strong) UIView *bar;
+@property(nonatomic,strong) UIView *divider;
+@property(nonatomic,strong) UIButton *backButton;
+@property(nonatomic,strong) UIButton *forwardButton;
+@property(nonatomic,strong) NSLayoutConstraint *heightConstraint;
 - (void)installInController:(UIViewController *)controller;
 - (void)updateLayout;
 @end
 
 @implementation CGAppNavigation
 
-- (void)returnFromVoice {
+- (void)goBack {
     UIViewController *owner = self.owner;
-    if (!owner) return;
-    SEL back = NSSelectorFromString(@"goBackKeyCommand:");
-    if ([owner respondsToSelector:back]) {
-        ((void (*)(id,SEL,id))objc_msgSend)(owner, back, nil);
-    }
-    __weak UIViewController *weakOwner = owner;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        UIViewController *strongOwner = weakOwner;
-        if (!strongOwner || !CGIsVoiceURL(CGSelectedTabURL())) return;
-        SEL newTab = NSSelectorFromString(@"newTabKeyCommand:");
-        if ([strongOwner respondsToSelector:newTab]) {
-            ((void (*)(id,SEL,id))objc_msgSend)(strongOwner, newTab, nil);
-        }
-    });
-}
-
-
-- (void)newChat {
-    UIViewController *owner = self.owner;
-    if (!owner) return;
-    SEL newTab = NSSelectorFromString(@"newTabKeyCommand:");
-    if ([owner respondsToSelector:newTab]) {
-        ((void (*)(id,SEL,id))objc_msgSend)(owner, newTab, nil);
+    SEL action = NSSelectorFromString(@"goBackKeyCommand:");
+    if (owner && [owner respondsToSelector:action]) {
+        ((void (*)(id,SEL,id))objc_msgSend)(owner, action, nil);
     }
 }
 
-- (void)voiceBackSwipe:(UIScreenEdgePanGestureRecognizer *)gesture {
-    if (!CGIsVoiceURL(CGSelectedTabURL())) return;
-    if (gesture.state == UIGestureRecognizerStateEnded &&
-        [gesture translationInView:gesture.view].x > 70) {
-        [self returnFromVoice];
+- (void)goForward {
+    UIViewController *owner = self.owner;
+    SEL action = NSSelectorFromString(@"goForwardKeyCommand:");
+    if (owner && [owner respondsToSelector:action]) {
+        ((void (*)(id,SEL,id))objc_msgSend)(owner, action, nil);
     }
+}
+
+- (UIButton *)navigationButtonWithSymbol:(NSString *)symbol
+                                   label:(NSString *)label
+                              identifier:(NSString *)identifier
+                                  action:(SEL)action {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    UIImageSymbolConfiguration *configuration =
+      [UIImageSymbolConfiguration configurationWithPointSize:16.0
+                                                       weight:UIImageSymbolWeightSemibold];
+    [button setImage:[[UIImage systemImageNamed:symbol] imageWithConfiguration:configuration]
+            forState:UIControlStateNormal];
+    button.tintColor = UIColor.labelColor;
+    button.backgroundColor =
+      [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:0.72];
+    button.layer.cornerRadius = 18.0;
+    button.layer.cornerCurve = kCACornerCurveContinuous;
+    button.accessibilityLabel = label;
+    button.accessibilityIdentifier = identifier;
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    return button;
 }
 
 - (void)installInController:(UIViewController *)controller {
-    if (self.voiceBackGesture) return;
+    if (self.bar) return;
     self.owner = controller;
+    UIView *root = controller.view;
 
-    UIButton *back = [UIButton buttonWithType:UIButtonTypeSystem];
-    [back setImage:[UIImage systemImageNamed:@"chevron.left"] forState:UIControlStateNormal];
-    back.tintColor = UIColor.labelColor;
-    back.backgroundColor = [UIColor.systemBackgroundColor colorWithAlphaComponent:0.96];
-    back.layer.cornerRadius = 19;
-    back.layer.borderWidth = 0.5;
-    back.layer.borderColor = UIColor.separatorColor.CGColor;
-    back.accessibilityLabel = @"Back to ChatGPT";
-    back.accessibilityIdentifier = @"ChatGPTVoiceBack";
-    [back addTarget:self action:@selector(returnFromVoice) forControlEvents:UIControlEventTouchUpInside];
-    [controller.view addSubview:back];
-    self.voiceBackButton = back;
+    UIView *bar = [UIView new];
+    bar.translatesAutoresizingMaskIntoConstraints = NO;
+    bar.backgroundColor = UIColor.systemBackgroundColor;
+    bar.accessibilityIdentifier = @"ChatGPTBottomNavigation";
+    [root addSubview:bar];
+    self.bar = bar;
 
-    UIButton *compose = [UIButton buttonWithType:UIButtonTypeSystem];
-    [compose setImage:[UIImage systemImageNamed:@"square.and.pencil"] forState:UIControlStateNormal];
-    compose.tintColor = UIColor.labelColor;
-    compose.backgroundColor = UIColor.clearColor;
-    compose.accessibilityLabel = @"New chat";
-    compose.accessibilityIdentifier = @"ChatGPTNewChat";
-    [compose addTarget:self action:@selector(newChat) forControlEvents:UIControlEventTouchUpInside];
-    [controller.view addSubview:compose];
-    self.composeButton = compose;
+    UIView *divider = [UIView new];
+    divider.translatesAutoresizingMaskIntoConstraints = NO;
+    divider.backgroundColor = [UIColor.separatorColor colorWithAlphaComponent:0.18];
+    [bar addSubview:divider];
+    self.divider = divider;
 
-    UIScreenEdgePanGestureRecognizer *gesture =
-      [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self action:@selector(voiceBackSwipe:)];
-    gesture.edges = UIRectEdgeLeft;
-    gesture.cancelsTouchesInView = NO;
-    gesture.delegate = self;
-    [controller.view addGestureRecognizer:gesture];
-    self.voiceBackGesture = gesture;
-    [self updateLayout];
-}
+    UIButton *back = [self navigationButtonWithSymbol:@"chevron.left"
+                                                label:@"Back"
+                                           identifier:@"ChatGPTBackButton"
+                                               action:@selector(goBack)];
+    UIButton *forward = [self navigationButtonWithSymbol:@"chevron.right"
+                                                   label:@"Forward"
+                                              identifier:@"ChatGPTForwardButton"
+                                                  action:@selector(goForward)];
+    [bar addSubview:back];
+    [bar addSubview:forward];
+    self.backButton = back;
+    self.forwardButton = forward;
 
-- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
- shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
-    return YES;
+    self.heightConstraint =
+      [bar.heightAnchor constraintEqualToConstant:50.0 + root.safeAreaInsets.bottom];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [bar.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+        [bar.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+        [bar.bottomAnchor constraintEqualToAnchor:root.bottomAnchor],
+        self.heightConstraint,
+
+        [divider.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor],
+        [divider.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor],
+        [divider.topAnchor constraintEqualToAnchor:bar.topAnchor],
+        [divider.heightAnchor constraintEqualToConstant:0.5],
+
+        [back.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor constant:12.0],
+        [back.topAnchor constraintEqualToAnchor:bar.topAnchor constant:7.0],
+        [back.widthAnchor constraintEqualToConstant:36.0],
+        [back.heightAnchor constraintEqualToConstant:36.0],
+
+        [forward.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor constant:-12.0],
+        [forward.topAnchor constraintEqualToAnchor:bar.topAnchor constant:7.0],
+        [forward.widthAnchor constraintEqualToConstant:36.0],
+        [forward.heightAnchor constraintEqualToConstant:36.0],
+    ]];
+
+    NSLog(@"[ChatGPTGecko] Bottom app navigation installed");
 }
 
 - (void)updateLayout {
     UIViewController *owner = self.owner;
-    if (!owner.isViewLoaded || !self.voiceBackButton || !self.composeButton) return;
-    CGFloat width = CGRectGetWidth(owner.view.bounds);
-    CGFloat y = owner.view.safeAreaInsets.top + 8;
-
-    // Official-app-style compose control, positioned just left of the site's
-    // login/account area so the web authentication button remains usable.
-    self.composeButton.frame = CGRectMake(MAX(180, width - 108), y, 38, 38);
-    self.composeButton.hidden = NO;
-    self.composeButton.userInteractionEnabled = YES;
-
-    BOOL voiceVisible = CGIsVoiceURL(CGSelectedTabURL());
-    self.voiceBackButton.hidden = !voiceVisible;
-    self.voiceBackButton.userInteractionEnabled = voiceVisible;
-    self.voiceBackButton.frame = CGRectMake(12, y, 38, 38);
-
-    [owner.view bringSubviewToFront:self.composeButton];
-    if (voiceVisible) [owner.view bringSubviewToFront:self.voiceBackButton];
+    if (!owner.isViewLoaded || !self.bar) return;
+    self.heightConstraint.constant = 50.0 + owner.view.safeAreaInsets.bottom;
+    [owner.view bringSubviewToFront:self.bar];
 }
 @end
 
@@ -416,9 +388,7 @@ static void CGApplyAppLayout(UIViewController *controller) {
     UIView *content = nil;
     UIView *chrome = nil;
     UIView *overview = nil;
-    // Upstream configureBrowserInterface() adds these three direct children.
-    // Use direct subviews rather than recursively matching an unrelated
-    // ChromeOverlayContentView before locating the real Gecko content.
+
     for (UIView *candidate in root.subviews) {
         NSString *type = NSStringFromClass(candidate.class);
         if ([type hasSuffix:@".ContentView"]) content = candidate;
@@ -430,23 +400,31 @@ static void CGApplyAppLayout(UIViewController *controller) {
         return;
     }
 
-    // Keep Gecko's own inner Auto Layout and keyboard constraints intact.
-    // Only replace the ContentView's root placement, which Reynard otherwise
-    // anchors to its bottom toolbar even if that toolbar is hidden.
-    NSArray<NSLayoutConstraint *> *ours = objc_getAssociatedObject(content, CGConstraintsAdjustedKey);
+    CGAppNavigation *navigation = objc_getAssociatedObject(controller, CGAppNavigationKey);
+    if (!navigation) {
+        navigation = [CGAppNavigation new];
+        objc_setAssociatedObject(controller, CGAppNavigationKey, navigation,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [navigation installInController:controller];
+    }
+    [navigation updateLayout];
+
+    // The real ChatGPT website fills all available space above our small
+    // native history bar. Reynard's hidden toolbar no longer owns any space.
+    NSArray<NSLayoutConstraint *> *ours =
+      objc_getAssociatedObject(content, CGConstraintsAdjustedKey);
     if (!ours) {
         content.translatesAutoresizingMaskIntoConstraints = NO;
         ours = @[
             [content.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
             [content.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
             [content.topAnchor constraintEqualToAnchor:root.safeAreaLayoutGuide.topAnchor],
-            [content.bottomAnchor constraintEqualToAnchor:root.safeAreaLayoutGuide.bottomAnchor]
+            [content.bottomAnchor constraintEqualToAnchor:navigation.bar.topAnchor]
         ];
-        objc_setAssociatedObject(content, CGConstraintsAdjustedKey, ours, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(content, CGConstraintsAdjustedKey, ours,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    // Reynard reapplies its native ContentView top/bottom anchors whenever
-    // address-bar mode changes. Retire those root-level constraints each pass,
-    // leaving our four safe-area constraints and every Gecko child untouched.
+
     for (NSLayoutConstraint *constraint in root.constraints.copy) {
         if ((constraint.firstItem == content || constraint.secondItem == content) &&
             ![ours containsObject:constraint] && constraint.active) {
@@ -455,22 +433,14 @@ static void CGApplyAppLayout(UIViewController *controller) {
     }
     [NSLayoutConstraint activateConstraints:ours];
 
-    // Hide both native top URL and bottom toolbar as one BrowserChrome view.
-    // Do not remove them: Reynard's layout methods still reference anchors.
     chrome.hidden = YES;
     chrome.userInteractionEnabled = NO;
     if (overview) {
         overview.hidden = YES;
         overview.userInteractionEnabled = NO;
     }
+
     [root bringSubviewToFront:content];
-    CGAppNavigation *navigation = objc_getAssociatedObject(controller, CGAppNavigationKey);
-    if (!navigation) {
-        navigation = [CGAppNavigation new];
-        objc_setAssociatedObject(controller, CGAppNavigationKey, navigation, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        [navigation installInController:controller];
-        NSLog(@"[ChatGPTGecko] App-style voice navigation attached");
-    }
     [navigation updateLayout];
 }
 
