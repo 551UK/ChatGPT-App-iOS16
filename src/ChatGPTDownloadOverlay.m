@@ -53,7 +53,7 @@ static UIViewController *CGFindBrowserController(UIViewController *controller) {
         return controller;
     }
 
-    for (UIViewController *child in controller.children) {
+    for (UIViewController *child in controller.childViewControllers) {
         UIViewController *found = CGFindBrowserController(child);
         if (found) return found;
     }
