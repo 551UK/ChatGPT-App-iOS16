@@ -13,15 +13,19 @@ private func findGeckoView(in view: UIView) -> GeckoView? {
     return nil
 }
 
+private func session(from rootPointer: UnsafeMutableRawPointer?) -> GeckoSession? {
+    guard let rootPointer else { return nil }
+    let root = Unmanaged<UIView>.fromOpaque(rootPointer).takeUnretainedValue()
+    return findGeckoView(in: root)?.session
+}
+
 @_cdecl("CGFixGeckoViewport")
 public func CGFixGeckoViewport(_ rootPointer: UnsafeMutableRawPointer?) {
-    guard let rootPointer else { return }
-    let root = Unmanaged<UIView>.fromOpaque(rootPointer).takeUnretainedValue()
-    guard let session = findGeckoView(in: root)?.session else { return }
+    guard let session = session(from: rootPointer) else { return }
 
-    // Reynard still calculates dynamic-toolbar insets after the browser chrome
-    // has been hidden. Reset the engine-side viewport so ChatGPT can use the
-    // entire visible app area down to the iOS safe area.
+    // Reynard still calculates dynamic-toolbar insets after its native browser
+    // chrome is hidden. Clear the engine-side toolbar geometry so chatgpt.com
+    // can use the whole app viewport down to the real iOS safe area.
     session.setDynamicToolbarMaxHeight(0, minHeight: 0)
     session.setContentOffsets(
         top: 0,
@@ -30,4 +34,14 @@ public func CGFixGeckoViewport(_ rootPointer: UnsafeMutableRawPointer?) {
         bottomInset: 0,
         contentTranslationY: 0
     )
+}
+
+@_cdecl("CGLoadChatGPTHome")
+public func CGLoadChatGPTHome(_ rootPointer: UnsafeMutableRawPointer?) {
+    session(from: rootPointer)?.load("https://chatgpt.com/")
+}
+
+@_cdecl("CGGoBackInGecko")
+public func CGGoBackInGecko(_ rootPointer: UnsafeMutableRawPointer?) {
+    session(from: rootPointer)?.goBack(userInteraction: true)
 }
