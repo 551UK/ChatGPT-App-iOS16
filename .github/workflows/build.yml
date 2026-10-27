@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-13_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-14_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
@@ -64,6 +64,9 @@ jobs:
           ! grep -Fq 'ChatGPTForwardButton' src/ChatGPTShell.m
           grep -Fq 'CGChromeSafeAreaInsets' src/ChatGPTShell.m
           grep -Fq 'CGZeroBottomToolbarFrame' src/ChatGPTShell.m
+          grep -Fq 'CGBottomToolbarBounds' src/ChatGPTShell.m
+          grep -Fq 'scrollToHideToolbarEnabled' src/ChatGPTShell.m
+          grep -Fq 'CGToolbarRelayoutKey' src/ChatGPTShell.m
           grep -Fq 'CGPreallowChatGPTMicrophoneSite' src/ChatGPTShell.m
           grep -Fq 'What can you do?' web/chatgpt-app-shell.js
           grep -Fq 'chatgpt is ai and can make mistakes' web/chatgpt-app-shell.js
@@ -97,7 +100,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-13. Keeps the full-screen swipe-back-only interface, working microphone permissions, and document-start cleanup with no startup flash. Fixes the remaining active-chat bottom gap by docking the Ask ChatGPT composer to bottom: 0 in the already full-screen Gecko viewport, removing the duplicate web safe-area offset. No other behavior changed. Rootless Dopamine DEB plus test IPA."
+          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-14. Fixes the remaining active-chat bottom gap at the actual Gecko viewport layer: disables Reynard dynamic-toolbar resizing for this dedicated app, forces the hidden BottomToolbar bounds/height to zero even after Auto Layout, and triggers one post-hook relayout so ToolbarController recalculates Gecko content offsets as zero. Keeps the working microphone flow, document-start no-flash cleanup, full-screen layout and swipe-right Back behavior unchanged. Rootless Dopamine DEB plus test IPA."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
