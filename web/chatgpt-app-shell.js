@@ -11,7 +11,7 @@
     "  position: fixed !important;",
     "  left: 18px !important;",
     "  right: 18px !important;",
-    "  bottom: 8px !important;",
+    "  bottom: calc(env(safe-area-inset-bottom, 0px) + 6px) !important;",
     "  top: auto !important;",
     "  width: auto !important;",
     "  max-width: 760px !important;",
@@ -138,7 +138,11 @@
   }
 
   const observer = new MutationObserver(schedule);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    characterData: true
+  });
   window.addEventListener("resize", schedule, { passive: true });
   window.addEventListener("popstate", schedule);
 })();
