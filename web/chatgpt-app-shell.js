@@ -161,8 +161,8 @@
 
     if (!hiddenSurface) return false;
 
-    // Hide synchronously from the MutationObserver callback so the card/modal
-    // never reaches a rendered frame.
+    // Hide synchronously from the MutationObserver callback before the browser's next paint,
+    // so the card/modal never reaches a rendered frame.
     hiddenSurface.dataset.cgIos16Hidden = "1";
     hiddenSurface.dataset.cgIos16AppPromo = "1";
     hiddenSurface.classList.add("cg-ios16-hide");
