@@ -19,6 +19,7 @@
   const styleText = [
     "html[data-cg-ios16-preparing='1'] { visibility: hidden !important; }",
     ".cg-ios16-hide { display: none !important; }",
+    ".cg-ios16-solid-topbar { background: var(--main-surface-primary, #fff) !important; background-color: var(--main-surface-primary, #fff) !important; opacity: 1 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }",
   ].join("\n");
 
   function installStyle() {
@@ -33,6 +34,64 @@
     return (element && element.textContent ? element.textContent : "")
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  function stabilizeTopActionBar() {
+    const controls = Array.from(document.querySelectorAll(
+      "button, [role='button'], a"
+    ));
+
+    const shareControl = controls.find((element) => {
+      const text = normalizedText(element).toLowerCase();
+      const aria = (element.getAttribute("aria-label") || "").trim().toLowerCase();
+      const title = (element.getAttribute("title") || "").trim().toLowerCase();
+      return text === "share" || aria === "share" || title === "share";
+    });
+
+    if (!shareControl) return false;
+
+    let best = null;
+    let node = shareControl;
+
+    // Find the smallest top-row ancestor that spans most of the viewport and
+    // contains several controls. This survives ChatGPT changing generated
+    // class names and avoids styling the conversation/content container.
+    for (let depth = 0; node && depth < 10; depth++, node = node.parentElement) {
+      if (node === document.body || node === document.documentElement) break;
+
+      const rect = node.getBoundingClientRect();
+      const interactiveCount = node.querySelectorAll(
+        "button, [role='button'], a"
+      ).length;
+
+      const looksLikeTopBar =
+        rect.top <= 90 &&
+        rect.bottom >= 34 &&
+        rect.width >= innerWidth * 0.78 &&
+        rect.height >= 42 &&
+        rect.height <= 118 &&
+        interactiveCount >= 3;
+
+      if (looksLikeTopBar) {
+        best = node;
+        break;
+      }
+    }
+
+    if (!best) {
+      const header = shareControl.closest("header");
+      if (header) best = header;
+    }
+
+    if (!best) return false;
+
+    for (const old of document.querySelectorAll(".cg-ios16-solid-topbar")) {
+      if (old !== best) old.classList.remove("cg-ios16-solid-topbar");
+    }
+
+    best.classList.add("cg-ios16-solid-topbar");
+    best.dataset.cgIos16SolidTopbar = "1";
+    return true;
   }
 
   function hideSuggestion() {
@@ -262,6 +321,7 @@
   function applyAppPresentation() {
     installStyle();
     dismissAppPromotion();
+    stabilizeTopActionBar();
     hideSuggestion();
     hideDisclaimers();
     if (document.body) revealCleanPage();
