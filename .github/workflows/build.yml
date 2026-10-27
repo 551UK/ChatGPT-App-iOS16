@@ -2,7 +2,7 @@ name: Build ChatGPT App (iOS 16)
 
 on:
   push:
-    branches: [main]
+    branches: [promo-suppression-v28]
   workflow_dispatch:
 
 concurrency:
@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-27_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-28_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/ChatGPTPrefs'
@@ -106,6 +106,10 @@ jobs:
           ! grep -Fq 'keyboardAdjustedElement' web/chatgpt-app-shell.js
           ! grep -Fq 'removeKeyboardGap' web/chatgpt-app-shell.js
           grep -Fq 'dismissAppPromotion' web/chatgpt-app-shell.js
+          grep -Fq 'stay on web' web/chatgpt-app-shell.js
+          grep -Fq 'open the app' web/chatgpt-app-shell.js
+          grep -Fq 'MutationObserver' web/chatgpt-app-shell.js
+          grep -Fq 'before the browser.s next paint' web/chatgpt-app-shell.js || grep -Fq "before the browser's next paint" web/chatgpt-app-shell.js
           grep -Fq '"run_at": "document_start"' scripts/package.sh
           find build/work/unpacked/Payload/ChatGPT.app -path '*/extensions/readerview/chatgpt-app-shell.js' -type f | grep -q .
           grep -Fq 'Reynard-Jailbroken.ipa' scripts/package.sh
@@ -178,43 +182,6 @@ jobs:
           # The actual Settings loading and icon rendering must still be device-tested.
       - uses: actions/upload-artifact@v4
         with:
-          name: ChatGPT-0.19.0-27-DEB
-          path: dist/com.551uk.chatgptgecko_0.19.0-27_iphoneos-arm64.deb
+          name: ChatGPT-0.19.0-28-PROMO-TEST
+          path: dist/com.551uk.chatgptgecko_0.19.0-28_iphoneos-arm64.deb
           if-no-files-found: error
-
-      - name: Publish single RELEASE DEB and clean obsolete refs
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          git fetch origin main --depth=1
-          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-            echo "Skipping outdated release build"
-            exit 0
-          fi
-
-          # Remove every existing GitHub release first so only one current
-          # RELEASE DEB remains.
-          gh release list --limit 100 --json tagName --jq '.[].tagName' | while IFS= read -r TAG; do
-            [ -n "$TAG" ] || continue
-            gh release delete "$TAG" --yes || true
-          done
-
-          # Remove all existing tags and recreate one stable 'release' tag.
-          while read -r _ REF; do
-            [ -n "$REF" ] || continue
-            TAG="${REF#refs/tags/}"
-            git push origin ":refs/tags/$TAG" || true
-          done < <(git ls-remote --tags --refs origin)
-
-          git tag -f release "$GITHUB_SHA"
-          git push origin refs/tags/release --force
-
-          gh release create release             dist/com.551uk.chatgptgecko_0.19.0-27_iphoneos-arm64.deb             --title 'RELEASE DEB'             --latest
-
-          # Keep only main and the two explicitly preserved known-good branches.
-          for BRANCH in bottom-nav-v10 settings-rebuild-from-0.22; do
-            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/$BRANCH" >/dev/null 2>&1 || true
-          done
