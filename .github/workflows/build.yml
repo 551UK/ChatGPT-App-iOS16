@@ -39,44 +39,35 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main --depth=1
-          # v0.56 clean-data startup fix remains. Normal launches now run
-          # their history policy at the original v0.55 constructor timing.
+          # Audit against v0.56, the deterministic cleanup-before-tab baseline.
+          # v0.57's duplicate/conditional constructor and v0.58's saved session
+          # rewrite must both be absent; the only runtime edit is one-shot clear.
           python3 - <<'PY'
-          import subprocess
           from pathlib import Path
-          root = "8d270d334ed84fdf26a1ccdc6bb02c35d33ff1fe"
-          original = subprocess.check_output(
-              ["git","show",f"{root}:src/ChatGPTShell.m"],text=True)
-          old = """        extern void CGRunPendingDataMaintenance(void);
-                  CGRunPendingDataMaintenance();
-                  CGConfigurePreferences();""".replace("                  ","        ")
-          new = """        extern void CGRunPendingDataMaintenance(void);
-                  extern BOOL CGHasPendingDataClear(void);
-                  // A normal launch follows the known-good v0.55 constructor ordering.
-                  // When Clear App Data is queued, process it before seeding the tab.
-                  if (CGHasPendingDataClear()) CGRunPendingDataMaintenance();
-                  CGConfigurePreferences();""".replace("                  ","        ")
-          assert old in original
-          assert Path("src/ChatGPTShell.m").read_text()==original.replace(old,new,1), "Unplanned native shell edit"
-          original_data = subprocess.check_output(
-              ["git","show","e31a1c0436bc2b83a9eba42e86bdf49a71646d12:src/ChatGPTDataMaintenance.m"],text=True)
-          data=Path("src/ChatGPTDataMaintenance.m").read_text()
-          assert "CGNormalStartupHistoryPolicy" in data
-          assert "CGHasPendingDataClear(void)" in data
-          assert "CGRunPendingDataMaintenance(void)" in data
-          assert "if (mask) CGWriteClearMask(0);" in data, "Request must be consumed before cleanup"
-          assert "CGWriteClearMask(incomplete)" not in data, "Failed categories must not be requeued"
-          assert data.count("CGWriteClearMask(0)") == 1, "Unexpected other mask changes"
+          import subprocess
           import difflib
-          before_lines=original_data.splitlines(keepends=True)
-          after_lines=data.splitlines(keepends=True)
-          diffs=[(op,before_lines[i:j],after_lines[k:l]) for op,i,j,k,l in difflib.SequenceMatcher(a=before_lines,b=after_lines,autojunk=False).get_opcodes() if op!="equal"]
-          assert len(diffs)==3, f"Unexpected cleanup source changes: {len(diffs)}"
-          assert "Individual selected categories can be retried" in "".join(diffs[0][1])
-          assert "Consume the request BEFORE touching any files" in "".join(diffs[1][2])
-          assert "CGWriteClearMask(incomplete)" in "".join(diffs[2][1])
-          assert "no automatic retries" in "".join(diffs[2][2])
-          print("PASS: only one-shot cleanup retry bug removed; app startup and v0.54 media fix retained")
+          base = "8d270d334ed84fdf26a1ccdc6bb02c35d33ff1fe"
+          shell = subprocess.check_output(["git","show",f"{base}:src/ChatGPTShell.m"],text=True)
+          assert Path("src/ChatGPTShell.m").read_text() == shell, "Startup shell changed from v0.56"
+          assert "CGRunPendingDataMaintenance();" in shell
+          assert "CGHasPendingDataClear" not in shell
+          assert "tab_session_state=NULL" not in shell
+          baseline = subprocess.check_output(["git","show",f"{base}:src/ChatGPTDataMaintenance.m"],text=True)
+          source = Path("src/ChatGPTDataMaintenance.m").read_text()
+          assert "void CGRunPendingDataMaintenance(void)" in source
+          assert "CGHasPendingDataClear" not in source
+          assert "CGNormalStartupHistoryPolicy" not in source
+          assert "if (mask) CGWriteClearMask(0);" in source
+          assert "CGWriteClearMask(incomplete)" not in source
+          prior, now = baseline.splitlines(keepends=True), source.splitlines(keepends=True)
+          edits=[(op,prior[i:j],now[k:l]) for op,i,j,k,l in
+            difflib.SequenceMatcher(a=prior,b=now,autojunk=False).get_opcodes() if op != "equal"]
+          assert len(edits) == 3, f"Unexpected changes to cleanup source: {len(edits)}"
+          assert "Individual selected categories can be retried" in "".join(edits[0][1])
+          assert "Consume the request BEFORE touching any files" in "".join(edits[1][2])
+          assert "CGWriteClearMask(incomplete)" in "".join(edits[2][1])
+          assert "no automatic retries" in "".join(edits[2][2])
+          print("PASS: clean v0.56 startup + one-shot cleanup; failed v0.57/v0.58 experiments absent")
           PY
           git diff --exit-code origin/main HEAD -- prefs/PreferenceLoader.plist prefs/Resources/Info.plist
           test -s src/ChatGPTContextMenu.m
@@ -87,7 +78,7 @@ jobs:
           grep -Fq 'addTargetWithHandler:' src/ChatGPTRemoteRegistration.m
           grep -Fq 'ChatGPTRemoteRegistration.m' scripts/package.sh
           grep -Fq -- '-framework MediaPlayer' scripts/package.sh
-          echo "PASS: one-shot data cleanup, v0.57 startup UI and v0.54 media fix preserved"
+          echo "PASS: one deterministic startup, one-shot cleanup, native UI and v0.54 media fix preserved"
 
       - name: Package Gecko-based ChatGPT app
         run: bash scripts/package.sh
