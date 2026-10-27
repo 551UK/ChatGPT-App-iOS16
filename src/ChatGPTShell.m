@@ -230,7 +230,7 @@ static BOOL CGIsVoiceURL(NSString *url) {
 @interface CGAppNavigation : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic,weak) UIViewController *owner;
 @property(nonatomic,strong) UIButton *voiceBackButton;
-@property(nonatomic,strong) UIButton *newChatButton;
+@property(nonatomic,strong) UIButton *composeButton;
 @property(nonatomic,strong) UIScreenEdgePanGestureRecognizer *voiceBackGesture;
 - (void)installInController:(UIViewController *)controller;
 - (void)updateLayout;
@@ -300,7 +300,7 @@ static BOOL CGIsVoiceURL(NSString *url) {
     compose.accessibilityIdentifier = @"ChatGPTNewChat";
     [compose addTarget:self action:@selector(newChat) forControlEvents:UIControlEventTouchUpInside];
     [controller.view addSubview:compose];
-    self.newChatButton = compose;
+    self.composeButton = compose;
 
     UIScreenEdgePanGestureRecognizer *gesture =
       [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self action:@selector(voiceBackSwipe:)];
@@ -319,22 +319,22 @@ static BOOL CGIsVoiceURL(NSString *url) {
 
 - (void)updateLayout {
     UIViewController *owner = self.owner;
-    if (!owner.isViewLoaded || !self.voiceBackButton || !self.newChatButton) return;
+    if (!owner.isViewLoaded || !self.voiceBackButton || !self.composeButton) return;
     CGFloat width = CGRectGetWidth(owner.view.bounds);
     CGFloat y = owner.view.safeAreaInsets.top + 8;
 
     // Official-app-style compose control, positioned just left of the site's
     // login/account area so the web authentication button remains usable.
-    self.newChatButton.frame = CGRectMake(MAX(180, width - 108), y, 38, 38);
-    self.newChatButton.hidden = NO;
-    self.newChatButton.userInteractionEnabled = YES;
+    self.composeButton.frame = CGRectMake(MAX(180, width - 108), y, 38, 38);
+    self.composeButton.hidden = NO;
+    self.composeButton.userInteractionEnabled = YES;
 
     BOOL voiceVisible = CGIsVoiceURL(CGSelectedTabURL());
     self.voiceBackButton.hidden = !voiceVisible;
     self.voiceBackButton.userInteractionEnabled = voiceVisible;
     self.voiceBackButton.frame = CGRectMake(12, y, 38, 38);
 
-    [owner.view bringSubviewToFront:self.newChatButton];
+    [owner.view bringSubviewToFront:self.composeButton];
     if (voiceVisible) [owner.view bringSubviewToFront:self.voiceBackButton];
 }
 @end
