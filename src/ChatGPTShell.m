@@ -5,7 +5,6 @@
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
 #import <sqlite3.h>
-#import <AVFoundation/AVFoundation.h>
 #import <objc/message.h>
 
 static NSString *const CGBundleID = @"com.551uk.chatgptios16";
@@ -114,21 +113,6 @@ static void CGEnsureStartupTab(void) {
     NSLog(@"[ChatGPTGecko] Startup tab prepared: %@", chatID ?: @"failure");
 }
 
-static UIView *CGFindNamedView(UIView *root, NSString *fragment) {
-    if (!root) return nil;
-    NSString *name = NSStringFromClass([root class]);
-    if ([name rangeOfString:fragment options:NSCaseInsensitiveSearch].location != NSNotFound)
-        return root;
-    for (UIView *child in root.subviews) {
-        UIView *found = CGFindNamedView(child, fragment);
-        if (found) return found;
-    }
-    return nil;
-}
-
-// Small native recovery menu: the website's fullscreen voice route can hide
-// all browser navigation. The menu works independently of Gecko's web page,
-// while keeping URL bars/tabs permanently hidden.
 static NSString *CGSelectedTabURL(void) {
     NSArray<NSString *> *dirs = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
     if (!dirs.count) return nil;
