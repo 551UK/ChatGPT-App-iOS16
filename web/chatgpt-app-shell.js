@@ -4,8 +4,20 @@
   // Dedicated presentation layer for the ChatGPT Gecko app.
   // ChatGPT still owns messages, uploads, account state and voice.
   const STYLE_ID = "cg-ios16-app-style";
+  const PREPARE_ATTR = "data-cg-ios16-preparing";
+
+  // document_start runs before ChatGPT paints. Keep the document invisible
+  // until the app-only cleanup has been applied, preventing the footer and
+  // suggestion from flashing briefly on launch. A hard timeout always reveals
+  // the page even if ChatGPT changes its markup later.
+  const root = document.documentElement;
+  if (root) root.setAttribute(PREPARE_ATTR, "1");
+  const revealFailsafe = setTimeout(() => {
+    document.documentElement?.removeAttribute(PREPARE_ATTR);
+  }, 1400);
 
   const styleText = [
+    "html[data-cg-ios16-preparing='1'] { visibility: hidden !important; }",
     ".cg-ios16-hide { display: none !important; }",
     ".cg-ios16-composer {",
     "  position: fixed !important;",
@@ -146,17 +158,30 @@
     best.classList.add("cg-ios16-composer");
   }
 
+  let revealed = false;
+  function revealCleanPage() {
+    if (revealed) return;
+    revealed = true;
+    clearTimeout(revealFailsafe);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.documentElement?.removeAttribute(PREPARE_ATTR);
+      });
+    });
+  }
+
   function applyAppPresentation() {
     installStyle();
     hideSuggestion();
     hideDisclaimers();
     moveComposerDown();
+    if (document.body) revealCleanPage();
   }
 
   let timer = null;
   function schedule() {
     clearTimeout(timer);
-    timer = setTimeout(applyAppPresentation, 120);
+    timer = setTimeout(applyAppPresentation, 16);
   }
 
   installStyle();
