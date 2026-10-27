@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-16_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-17_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
@@ -61,6 +61,9 @@ jobs:
           grep -Fq 'CGBottomToolbarBounds' src/ChatGPTShell.m
           grep -Fq 'scrollToHideToolbarEnabled' src/ChatGPTShell.m
           grep -Fq 'CGToolbarRelayoutKey' src/ChatGPTShell.m
+          grep -Fq 'ChatGPTNativeStartupLoader' src/ChatGPTShell.m
+          grep -Fq 'CGStartupPageReady' src/ChatGPTShell.m
+          grep -Fq 'CGStartupTitleMarker' src/ChatGPTShell.m
           grep -Fq 'CGPreallowChatGPTMicrophoneSite' src/ChatGPTShell.m
           grep -Fq 'What can you do?' web/chatgpt-app-shell.js
           grep -Fq 'chatgpt is ai and can make mistakes' web/chatgpt-app-shell.js
@@ -91,7 +94,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-16. Removes the last old composer-positioning workaround completely: ChatGPT now controls its own input-bar position using its default mobile web layout. Keeps only the viewport fix that actually solved the large bottom gap (dynamic toolbar disabled, hidden BottomToolbar bounds height zero, one relayout), plus working microphone permissions, document-start no-flash cleanup, hidden browser chrome, full-screen layout and swipe-right Back. Rootless Dopamine DEB plus test IPA."
+          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-17. Adds a native ChatGPT cold-start loading screen using the app icon, ChatGPT label and subtle activity spinner instead of exposing Gecko's plain white startup background. The loader is shown from BrowserViewController viewDidLoad, marks the selected tab as starting, polls Reynard's own tab database for Gecko's real title update, and fades out when ChatGPT is ready with an 8-second safety timeout. Existing microphone permissions, no-flash web cleanup, full-screen layout, viewport fix and swipe-right Back remain unchanged. Rootless Dopamine DEB plus test IPA."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
