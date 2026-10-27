@@ -36,7 +36,7 @@ SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CLANG="$(xcrun --sdk iphoneos --find clang)"
 "$CLANG" -arch arm64 -isysroot "$SDK" -miphoneos-version-min=16.0 \
     -fobjc-arc -fblocks -O2 -dynamiclib \
-    -framework Foundation -framework UIKit -framework CoreGraphics -framework AVFoundation -lsqlite3 \
+    -framework Foundation -framework UIKit -framework CoreGraphics -lsqlite3 \
     -Wno-deprecated-declarations \
     "$ROOT/src/ChatGPTShell.m" -o "$APP/Frameworks/ChatGPTShell.dylib"
 
@@ -113,8 +113,8 @@ unzip -t "$OUTPUT" >/dev/null
 ls -lh "$OUTPUT"
 
 # Build an independent rootless app package. Its filesystem directory is
-# different from both the official ChatGPT app and standalone Reynard; only
-# the display name is ChatGPT. No mobile substrate injection is required.
+# distinct from standalone Reynard and registered with its own fresh bundle ID.
+# No MobileSubstrate injection is required.
 PKG="$ROOT/build/deb-root"
 mkdir -p "$PKG/var/jb/Applications" "$PKG/DEBIAN"
 ditto "$NEWAPP" "$PKG/var/jb/Applications/ChatGPT.app"
