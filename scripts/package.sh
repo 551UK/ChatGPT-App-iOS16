@@ -81,7 +81,7 @@ scripts.append({
 manifest["content_scripts"] = scripts
 # Bump the built-in extension version so Gecko refreshes the installed copy
 # for users upgrading from the previous ChatGPT package.
-manifest["version"] = "1.0.20"
+manifest["version"] = "1.0.21"
 manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 print("Injected ChatGPT app presentation content script into", manifest_path)
 PY
@@ -154,22 +154,65 @@ unzip -t "$OUTPUT" >/dev/null
 /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$NEWAPP/Info.plist"
 ls -lh "$OUTPUT"
 
+# Build only the Settings preference bundle. The ChatGPT app runtime above is
+# the exact 0.19.0-22 source and is intentionally left untouched.
+: "${THEOS:?THEOS must point to a Theos checkout}"
+
+APP_ICON="$NEWAPP/AppIcon60x60@3x.png"
+[ -s "$APP_ICON" ] || { echo "ERROR: ChatGPT app icon missing" >&2; exit 1; }
+
+# Match the working iOS 16 rootless tweak pattern: one real 29x29 icon at the
+# PreferenceLoader path and the same artwork inside the preference bundle.
+python3 - "$APP_ICON" "$ROOT/prefs/Resources/icon.png" <<'PY'
+from PIL import Image
+from pathlib import Path
+import sys
+
+source = Image.open(sys.argv[1]).convert("RGBA")
+target = Path(sys.argv[2])
+target.parent.mkdir(parents=True, exist_ok=True)
+source.resize((29, 29), Image.Resampling.LANCZOS).save(target)
+PY
+
+make -C "$ROOT/prefs" clean all stage FINALPACKAGE=1 THEOS="$THEOS"
+
+PREF_BUNDLE="$(find "$ROOT/prefs/.theos" -type d -path '*/Library/PreferenceBundles/ChatGPTPrefs.bundle' | head -1)"
+[ -n "$PREF_BUNDLE" ] && [ -d "$PREF_BUNDLE" ] || {
+    echo "ERROR: ChatGPTPrefs.bundle was not staged" >&2
+    exit 1
+}
+PREF_EXE="$PREF_BUNDLE/ChatGPTPrefs"
+[ -s "$PREF_EXE" ] || { echo "ERROR: ChatGPTPrefs executable missing" >&2; exit 1; }
+
+# Sign the staged bundle executable before copying it into the manually-built
+# DEB. This does not touch the ChatGPT application or its entitlements.
+ldid -S "$PREF_EXE"
+
 # Build an independent rootless app package. Its filesystem directory is
 # distinct from standalone Reynard and registered with its own fresh bundle ID.
 # No MobileSubstrate injection is required.
 PKG="$ROOT/build/deb-root"
-mkdir -p "$PKG/var/jb/Applications" "$PKG/DEBIAN"
+mkdir -p \
+    "$PKG/var/jb/Applications" \
+    "$PKG/var/jb/Library/PreferenceBundles" \
+    "$PKG/var/jb/Library/PreferenceLoader/Preferences" \
+    "$PKG/DEBIAN"
 ditto "$NEWAPP" "$PKG/var/jb/Applications/ChatGPT.app"
+ditto "$PREF_BUNDLE" "$PKG/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle"
+cp "$ROOT/prefs/PreferenceLoader.plist" \
+   "$PKG/var/jb/Library/PreferenceLoader/Preferences/ChatGPT.plist"
+cp "$ROOT/prefs/Resources/icon.png" \
+   "$PKG/var/jb/Library/PreferenceLoader/Preferences/ChatGPT.png"
 cat > "$PKG/DEBIAN/control" <<'CONTROL'
 Package: com.551uk.chatgptgecko
 Name: ChatGPT
-Version: 0.19.0-22
+Version: 0.19.0-25
 Architecture: iphoneos-arm64
 Maintainer: 551UK
 Author: 551UK
 Section: Applications
-Depends: firmware (>= 16.0)
-Description: ChatGPT website app powered by Gecko 158.0.1, based on Reynard.
+Depends: firmware (>= 16.0), preferenceloader
+Description: ChatGPT App by 551UK. Built for iOS 16 to provide a seamless modern ChatGPT experience without the limitations of the outdated legacy app.
 CONTROL
 cat > "$PKG/DEBIAN/postinst" <<'POSTINST'
 #!/bin/sh
@@ -186,7 +229,7 @@ if command -v uicache >/dev/null 2>&1; then uicache -a || true; fi
 exit 0
 POSTRM
 chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/postrm"
-DEB="$DIST/com.551uk.chatgptgecko_0.19.0-22_iphoneos-arm64.deb"
+DEB="$DIST/com.551uk.chatgptgecko_0.19.0-25_iphoneos-arm64.deb"
 dpkg-deb --root-owner-group -Zxz --build "$PKG" "$DEB"
 dpkg-deb --field "$DEB" Package Architecture
 ls -lh "$DEB"
