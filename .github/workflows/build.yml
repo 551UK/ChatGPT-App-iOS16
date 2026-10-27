@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-15_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-16_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           MAIN="$(find build/work/unpacked/Payload -maxdepth 2 -name Reynard -type f | head -1)"
@@ -65,9 +65,9 @@ jobs:
           grep -Fq 'What can you do?' web/chatgpt-app-shell.js
           grep -Fq 'chatgpt is ai and can make mistakes' web/chatgpt-app-shell.js
           grep -Fq 'chats may be reviewed and used to improve our ai models' web/chatgpt-app-shell.js
-          grep -Fq 'cg-ios16-composer' web/chatgpt-app-shell.js
-          grep -Fq 'safe-area-inset-bottom' web/chatgpt-app-shell.js
           grep -Fq 'data-cg-ios16-preparing' web/chatgpt-app-shell.js
+          ! grep -Fq 'cg-ios16-composer' web/chatgpt-app-shell.js
+          ! grep -Fq 'moveComposerDown' web/chatgpt-app-shell.js
           grep -Fq '"run_at": "document_start"' scripts/package.sh
           find build/work/unpacked/Payload/ChatGPT.app -path '*/extensions/readerview/chatgpt-app-shell.js' -type f | grep -q .
           grep -Fq 'Reynard-Jailbroken.ipa' scripts/package.sh
@@ -91,7 +91,7 @@ jobs:
             exit 0
           fi
           TAG="gecko-test"
-          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-15. Current clean build: Reynard browser chrome hidden, full-screen Gecko content, swipe-right history Back, working microphone permissions, document-start no-flash ChatGPT cleanup, normal iOS safe-area spacing under the composer, and the hidden BottomToolbar reporting zero bounds height with dynamic toolbar resizing disabled so Gecko reserves no browser-toolbar gap. Rootless Dopamine DEB plus test IPA."
+          NOTES="ChatGPT iOS 16 Gecko test v0.19.0-16. Removes the last old composer-positioning workaround completely: ChatGPT now controls its own input-bar position using its default mobile web layout. Keeps only the viewport fix that actually solved the large bottom gap (dynamic toolbar disabled, hidden BottomToolbar bounds height zero, one relayout), plus working microphone permissions, document-start no-flash cleanup, hidden browser chrome, full-screen layout and swipe-right Back. Rootless Dopamine DEB plus test IPA."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/ChatGPT-Gecko-iOS16.ipa dist/*.deb --clobber
             gh release edit "$TAG" --title 'ChatGPT Gecko iOS 16 (test)' --notes "$NOTES"
