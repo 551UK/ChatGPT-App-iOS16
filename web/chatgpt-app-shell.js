@@ -98,12 +98,15 @@
     if (!shareControl) return false;
 
     let best = null;
+    let fallback = null;
     let node = shareControl;
 
-    // Find the smallest top-row ancestor that spans most of the viewport and
-    // contains several controls. This survives ChatGPT changing generated
-    // class names and avoids styling the conversation/content container.
-    for (let depth = 0; node && depth < 10; depth++, node = node.parentElement) {
+    // Prefer the real full-width top header, not the narrower right-hand
+    // action container. The latter starts at the chat/content column and was
+    // the reason the top-left of the conversation remained exposed.
+    const edgeTolerance = Math.max(12, innerWidth * 0.02);
+
+    for (let depth = 0; node && depth < 12; depth++, node = node.parentElement) {
       if (node === document.body || node === document.documentElement) break;
 
       const rect = node.getBoundingClientRect();
@@ -111,15 +114,26 @@
         "button, [role='button'], a"
       ).length;
 
-      const looksLikeTopBar =
-        rect.top <= 90 &&
+      const inTopBand =
+        rect.top <= 100 &&
         rect.bottom >= 34 &&
-        rect.width >= innerWidth * 0.78 &&
         rect.height >= 42 &&
-        rect.height <= 118 &&
+        rect.height <= 130 &&
         interactiveCount >= 3;
 
-      if (looksLikeTopBar) {
+      if (!inTopBand) continue;
+
+      const spansMostOfScreen = rect.width >= innerWidth * 0.78;
+      if (!fallback && spansMostOfScreen) fallback = node;
+
+      const reachesLeftEdge = rect.left <= edgeTolerance;
+      const reachesRightEdge = rect.right >= innerWidth - edgeTolerance;
+      const spansFullScreen =
+        rect.width >= innerWidth * 0.96 &&
+        reachesLeftEdge &&
+        reachesRightEdge;
+
+      if (spansFullScreen) {
         best = node;
         break;
       }
@@ -127,9 +141,16 @@
 
     if (!best) {
       const header = shareControl.closest("header");
-      if (header) best = header;
+      if (header) {
+        const rect = header.getBoundingClientRect();
+        const reachesBothEdges =
+          rect.left <= edgeTolerance &&
+          rect.right >= innerWidth - edgeTolerance;
+        if (reachesBothEdges) best = header;
+      }
     }
 
+    if (!best) best = fallback;
     if (!best) return false;
 
     for (const old of document.querySelectorAll(".cg-ios16-solid-topbar")) {
