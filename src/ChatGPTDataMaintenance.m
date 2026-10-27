@@ -404,19 +404,3 @@ void CGRunPendingDataMaintenance(void) {
         });
     }
 }
-
-// Preserve v0.55's working constructor-time setup for ordinary launches.
-// Only a requested data clear needs explicit ordering before CGEnsureStartupTab
-// in the shell constructor. Keeping those paths separate also avoids a second
-// history-policy initialization on every normal startup.
-BOOL CGHasPendingDataClear(void) {
-    return CGIsChatGPTApp() && CGReadClearMask() != 0;
-}
-
-__attribute__((constructor))
-static void CGNormalStartupHistoryPolicy(void) {
-    @autoreleasepool {
-        if (!CGIsChatGPTApp() || CGReadClearMask() != 0) return;
-        CGRunPendingDataMaintenance();
-    }
-}
