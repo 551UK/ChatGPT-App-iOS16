@@ -1,6 +1,8 @@
-// Remove Reynard's unsupported browser-tab actions from ChatGPT link previews.
-// v0.51 extends the known-good 0.50 shell without changing its navigation,
-// Gecko engine, ChatGPT page, or the Copy Link / Share Link actions.
+// Suppress Reynard's native link preview / Copy Link / Share Link sheet
+// for ChatGPT conversation URLs (including sidebar chat rows). This is
+// strictly the preview suppression from the earlier working test: no
+// custom long-press handler and no replacement ChatGPT action menu.
+// Other URL types/images keep the original native behaviour.
 //
 // Reynard 0.19.0 uses UIContextMenuConfiguration(identifier:previewProvider:
 // actionProvider:) in LinkPreviewMenu.swift. Swift bridges that convenience
@@ -57,12 +59,32 @@ static UIMenu *CGMenuWithoutBrowserTabs(UIMenu *menu) {
     return changed ? [menu menuByReplacingChildren:retained] : menu;
 }
 
+// Only intercept conversation-link previews. Do not modify ChatGPT's
+// three-dot action menu or other navigation/link gestures.
+static BOOL CGIsConversationLink(id<NSCopying> identifier) {
+    if (![(id)identifier isKindOfClass:NSURL.class]) return NO;
+    NSURL *url = (NSURL *)(id)identifier;
+    NSString *host = url.host.lowercaseString ?: @"";
+    if (![host isEqualToString:@"chatgpt.com"] &&
+        ![host isEqualToString:@"www.chatgpt.com"] &&
+        ![host isEqualToString:@"chat.openai.com"]) return NO;
+    NSArray<NSString *> *segments = [url.path componentsSeparatedByString:@"/"];
+    for (NSUInteger i = 0; i + 1 < segments.count; i++) {
+        if ([segments[i] isEqualToString:@"c"] && segments[i + 1].length) return YES;
+    }
+    return NO;
+}
+
 static UIContextMenuConfiguration *CGChatGPTContextMenuFactory(
     id receiver, SEL selector, id<NSCopying> identifier,
     UIContextMenuContentPreviewProvider previewProvider,
     UIContextMenuActionProvider actionProvider) {
 
     if (!CGOriginalMenuFactory) return nil;
+    // No link-preview sheet, Copy Link, Share Link or browser-tab actions
+    // for conversation links. Returning nil prevents UIKit from creating
+    // its preview and menu; it does not affect ChatGPT's HTML action menu.
+    if (CGIsConversationLink(identifier)) return nil;
     if (!actionProvider) {
         return CGOriginalMenuFactory(receiver, selector, identifier,
                                      previewProvider, actionProvider);
@@ -101,6 +123,6 @@ static void CGInstallChatGPTContextMenuFilter(void) {
 
         CGOriginalMenuFactory = (CGMenuFactoryIMP)method_setImplementation(
             factory, (IMP)CGChatGPTContextMenuFactory);
-        NSLog(@"[ChatGPTGecko] Unsupported browser-tab context actions filtered");
+        NSLog(@"[ChatGPTGecko] Conversation-link preview suppression installed");
     }
 }
