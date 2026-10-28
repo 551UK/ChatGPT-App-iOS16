@@ -2,7 +2,7 @@ name: Build ChatGPT App (iOS 16)
 
 on:
   push:
-    branches: [one-shot-data-cleanup-v59]
+    branches: [suppress-conversation-link-previews-from-v59-v83]
   workflow_dispatch:
 
 concurrency:
@@ -24,6 +24,31 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Verify v0.59 baseline and preview-only source delta
+        run: |
+          set -euo pipefail
+          node --check web/chatgpt-app-shell.js
+          # No long-press handler or replacement menu in the web script.
+          ! grep -Fq 'installSidebarChatLongPress' web/chatgpt-app-shell.js
+          # App core, Settings, Gecko script, media fix are the exact v0.59 files.
+          git diff --exit-code ce8fe63c815d043b4c43722af9335ad076ae2d2e HEAD -- web src/ChatGPTShell.m src/ChatGPTDataMaintenance.m src/ChatGPTRemoteRegistration.m prefs scripts/rebrand.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base="ce8fe63c815d043b4c43722af9335ad076ae2d2e"
+          old=subprocess.check_output(["git","show",f"{base}:src/ChatGPTContextMenu.m"],text=True)
+          new=Path("src/ChatGPTContextMenu.m").read_text()
+          assert "CGIsConversationLink" not in old
+          assert "static BOOL CGIsConversationLink" in new
+          assert "if (CGIsConversationLink(identifier)) return nil;" in new
+          assert "CGMenuWithoutBrowserTabs" in new
+          assert "UIContextMenuConfiguration" in new
+          assert "chatgpt-app-shell.js" not in new
+          assert "Copy Link" in new and "Share Link" in new
+          assert "installSidebarChatLongPress" not in new
+          assert "Version: 0.19.0-83" in Path("scripts/package.sh").read_text()
+          print("PASS: exact v0.59 behaviour except conversation-link native preview suppression")
+          PY
       - name: Install packaging dependencies
         run: |
           brew install ldid dpkg
@@ -86,7 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-59_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-83_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/ChatGPTPrefs'
@@ -277,6 +302,6 @@ jobs:
           # The actual Settings loading and icon rendering must still be device-tested.
       - uses: actions/upload-artifact@v4
         with:
-          name: ChatGPT-0.19.0-59-ONE-SHOT-CLEANUP
-          path: dist/com.551uk.chatgptgecko_0.19.0-59_iphoneos-arm64.deb
+          name: ChatGPT-0.19.0-83-PREVIEW-SUPPRESSION-ONLY
+          path: dist/com.551uk.chatgptgecko_0.19.0-83_iphoneos-arm64.deb
           if-no-files-found: error
