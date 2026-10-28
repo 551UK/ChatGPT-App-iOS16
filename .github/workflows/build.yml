@@ -2,7 +2,7 @@ name: Build ChatGPT App (iOS 16)
 
 on:
   push:
-    branches: [suppress-conversation-link-previews-from-v59-v83]
+    branches: [homepage-icon-scale-140-v84]
   workflow_dispatch:
 
 concurrency:
@@ -30,8 +30,26 @@ jobs:
           node --check web/chatgpt-app-shell.js
           # No long-press handler or replacement menu in the web script.
           ! grep -Fq 'installSidebarChatLongPress' web/chatgpt-app-shell.js
-          # App core, Settings, Gecko script, media fix are the exact v0.59 files.
-          git diff --exit-code ce8fe63c815d043b4c43722af9335ad076ae2d2e HEAD -- web src/ChatGPTShell.m src/ChatGPTDataMaintenance.m src/ChatGPTRemoteRegistration.m prefs scripts/rebrand.py
+          # Native app, Settings and media fix remain exactly v0.59.
+          git diff --exit-code ce8fe63c815d043b4c43722af9335ad076ae2d2e HEAD -- src/ChatGPTShell.m src/ChatGPTDataMaintenance.m src/ChatGPTRemoteRegistration.m prefs scripts/rebrand.py
+          # Suppression of native conversation link previews remains exactly v0.83.
+          git diff --exit-code fd94e099d75f2a3e4e2327de612838ab20f16cd8 HEAD -- src/ChatGPTContextMenu.m
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          original=subprocess.check_output(["git","show","fd94e099d75f2a3e4e2327de612838ab20f16cd8:web/chatgpt-app-shell.js"],text=True)
+          actual=Path("web/chatgpt-app-shell.js").read_text()
+          assert original.count('".cg-ios16-topbar-control { transform: scale(1.30)') == 1
+          assert actual.count('".cg-ios16-topbar-control { transform: scale(1.30)') == 1
+          assert actual.count('".cg-ios16-topbar-control.cg-ios16-home-topbar-control { transform: scale(1.40)') == 1
+          assert 'const homeHeader = isHomeRoute || hasHomeSwitcher;' in actual
+          assert 'if (homeHeader) element.classList.add("cg-ios16-home-topbar-control");' in actual
+          assert 'if (!homeHeader || !scaleControls.includes(old))' in actual
+          assert 'old.classList.remove("cg-ios16-home-topbar-control");' in actual
+          assert 'installSidebarChatLongPress' not in actual
+          assert 0 < len(actual)-len(original) < 1500, "Unexpected presentation-layer edit size"
+          print("PASS: homepage corners 140%, chat icons 130%, native preview suppression unchanged")
+          PY
           python3 - <<'PY'
           from pathlib import Path
           import subprocess
@@ -46,8 +64,9 @@ jobs:
           assert "chatgpt-app-shell.js" not in new
           assert "Copy Link" in new and "Share Link" in new
           assert "installSidebarChatLongPress" not in new
-          assert "Version: 0.19.0-83" in Path("scripts/package.sh").read_text()
-          print("PASS: exact v0.59 behaviour except conversation-link native preview suppression")
+          assert "Version: 0.19.0-84" in Path("scripts/package.sh").read_text()
+          assert 'manifest["version"] = "1.0.36"' in Path("scripts/package.sh").read_text()
+          print("PASS: v0.59 core + v0.83 preview suppression + home-only icon enlargement")
           PY
       - name: Install packaging dependencies
         run: |
@@ -111,7 +130,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/ChatGPT-Gecko-iOS16.ipa
-          test -s dist/com.551uk.chatgptgecko_0.19.0-83_iphoneos-arm64.deb
+          test -s dist/com.551uk.chatgptgecko_0.19.0-84_iphoneos-arm64.deb
           dpkg-deb --field dist/*.deb Architecture | grep -Fx 'iphoneos-arm64'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Applications/ChatGPT.app/Info.plist'
           dpkg-deb --contents dist/*.deb | grep -F '/var/jb/Library/PreferenceBundles/ChatGPTPrefs.bundle/ChatGPTPrefs'
@@ -302,6 +321,6 @@ jobs:
           # The actual Settings loading and icon rendering must still be device-tested.
       - uses: actions/upload-artifact@v4
         with:
-          name: ChatGPT-0.19.0-83-PREVIEW-SUPPRESSION-ONLY
-          path: dist/com.551uk.chatgptgecko_0.19.0-83_iphoneos-arm64.deb
+          name: ChatGPT-0.19.0-84-PREVIEW-SUPPRESSION-HOME-ICONS-140
+          path: dist/com.551uk.chatgptgecko_0.19.0-84_iphoneos-arm64.deb
           if-no-files-found: error
