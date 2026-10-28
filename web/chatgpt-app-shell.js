@@ -23,6 +23,8 @@
     ".cg-ios16-topbar-control { transform: scale(1.30) !important; transform-origin: center center !important; }",
     // Only homepage top-corner controls use 40%; chat header keeps 30%.
     ".cg-ios16-topbar-control.cg-ios16-home-topbar-control { transform: scale(1.40) !important; }",
+    ".cg-ios16-topbar-control[data-cg-icon-role='sidebar'] { transform: scale(1.40) !important; }",
+    ".cg-ios16-topbar-control[data-cg-icon-role='new'] { transform: scale(1.50) !important; }",
   ].join("\n");
 
   function installStyle() {
@@ -84,6 +86,27 @@
     }
 
     return `rgb(${Math.round(accumulated.r)}, ${Math.round(accumulated.g)}, ${Math.round(accumulated.b)})`;
+  }
+
+  // Identity is recomputed from current markup, never a button's row index.
+  const iconShapes = new Map();
+  function iconIdentity(element) {
+    const label = ["aria-label", "title", "data-testid"].map(k =>
+      element.getAttribute(k) || "").join(" ").toLowerCase();
+    const svg = element.querySelector("svg");
+    const shape = svg ? Array.from(svg.querySelectorAll("path, rect, line, polyline, circle, use"))
+      .map(n => n.tagName + ":" + Array.from(n.attributes)
+        .filter(a => /^(d|x|y|x1|x2|y1|y2|width|height|points|cx|cy|r|href|xlink:href)$/.test(a.name))
+        .map(a => a.name + "=" + a.value).sort().join(";")).join("|") : "";
+    if (!svg) return "";
+    let role = /new[ -]?chat|create[ -]?chat|compose/.test(label) ? "new" :
+      /sidebar|side[ -]?bar/.test(label) ? "sidebar" : "";
+    if (role && shape) {
+      const previous = iconShapes.get(shape);
+      iconShapes.set(shape, previous && previous !== role ? "ambiguous" : role);
+    }
+    if (!role && shape) role = iconShapes.get(shape) || "";
+    return role === "new" || role === "sidebar" ? role : "";
   }
 
   function stabilizeTopActionBar() {
@@ -180,9 +203,11 @@
       rowLabels.some(({ text }) => text === "chat") &&
       rowLabels.some(({ text }) => text === "work");
 
-    let scaleControls = rowControls;
+    // A nested link/button must not receive a second ancestor scale.
+    let scaleControls = rowControls.filter(element =>
+      !rowControls.some(other => other !== element && element.contains(other)));
     if (isHomeRoute || hasHomeSwitcher) {
-      scaleControls = rowControls.filter((element) => {
+      scaleControls = scaleControls.filter((element) => {
         const label = normalizedText(element).toLowerCase();
         if (label === "chat" || label === "work") return false;
 
@@ -208,7 +233,17 @@
         old.classList.remove("cg-ios16-home-topbar-control");
       }
     }
+    // Learn labelled artwork before resolving unlabelled controls.
+    scaleControls.forEach(iconIdentity);
+    for (const old of document.querySelectorAll("[data-cg-icon-role]")) {
+      if (!scaleControls.includes(old)) old.removeAttribute("data-cg-icon-role");
+    }
     for (const element of scaleControls) {
+      const role = iconIdentity(element);
+      if (role) {
+        if (element.getAttribute("data-cg-icon-role") !== role)
+          element.setAttribute("data-cg-icon-role", role);
+      } else element.removeAttribute("data-cg-icon-role");
       element.classList.add("cg-ios16-topbar-control");
       if (homeHeader) element.classList.add("cg-ios16-home-topbar-control");
     }
@@ -568,7 +603,9 @@
   observer.observe(document.documentElement, {
     childList: true,
     subtree: true,
-    characterData: true
+    characterData: true,
+    attributes: true,
+    attributeFilter: ["aria-label", "title", "data-testid", "d", "href", "xlink:href", "viewBox", "x", "y", "x1", "x2", "y1", "y2", "width", "height", "points", "cx", "cy", "r"]
   });
   window.addEventListener("resize", schedule, { passive: true });
   window.addEventListener("popstate", schedule);
