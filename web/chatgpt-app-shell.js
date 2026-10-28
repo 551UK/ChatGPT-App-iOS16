@@ -21,6 +21,8 @@
     ".cg-ios16-hide { display: none !important; }",
     ".cg-ios16-solid-topbar { background-color: transparent !important; background-image: linear-gradient(to bottom, var(--cg-ios16-topbar-bg, #eeeef0) 0, var(--cg-ios16-topbar-bg, #eeeef0) var(--cg-ios16-topbar-cutoff, 0px), transparent var(--cg-ios16-topbar-cutoff, 0px), transparent 100%) !important; opacity: 1 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }",
     ".cg-ios16-topbar-control { transform: scale(1.30) !important; transform-origin: center center !important; }",
+    // Only homepage top-corner controls use 40%; chat header keeps 30%.
+    ".cg-ios16-topbar-control.cg-ios16-home-topbar-control { transform: scale(1.40) !important; }",
   ].join("\n");
 
   function installStyle() {
@@ -112,6 +114,7 @@
     if (visibleTopControls.length < 2) {
       for (const old of document.querySelectorAll(".cg-ios16-topbar-control")) {
         old.classList.remove("cg-ios16-topbar-control");
+        old.classList.remove("cg-ios16-home-topbar-control");
       }
       return false;
     }
@@ -191,18 +194,28 @@
 
     if (!scaleControls.length) return false;
 
+    const homeHeader = isHomeRoute || hasHomeSwitcher;
     for (const old of document.querySelectorAll(".cg-ios16-topbar-control")) {
       if (!scaleControls.includes(old)) {
         old.classList.remove("cg-ios16-topbar-control");
+        old.classList.remove("cg-ios16-home-topbar-control");
+      }
+    }
+    // Remove homepage-only scaling when navigating into a conversation,
+    // even if React reuses the same button element between page layouts.
+    for (const old of document.querySelectorAll(".cg-ios16-home-topbar-control")) {
+      if (!homeHeader || !scaleControls.includes(old)) {
+        old.classList.remove("cg-ios16-home-topbar-control");
       }
     }
     for (const element of scaleControls) {
       element.classList.add("cg-ios16-topbar-control");
+      if (homeHeader) element.classList.add("cg-ios16-home-topbar-control");
     }
 
     // Home page: keep ChatGPT's native white header completely untouched,
     // including the partial loading state before Chat/Work exists in the DOM.
-    // The left/right icon controls above are still enlarged to 1.30x, but do
+    // The left/right icon controls above are enlarged to 1.40x, but do
     // not sample a transparent icon as a background colour and do not apply
     // the custom solid-topbar treatment here.
     if (isHomeRoute || hasHomeSwitcher) {
