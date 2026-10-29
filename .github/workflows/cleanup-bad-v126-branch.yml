@@ -1,0 +1,35 @@
+name: Remove abandoned v1.26 resume experiment
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cleanup-bad-v126-branch.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  remove-abandoned-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify good and bad branch identities, delete only abandoned v1.26
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          good=$(gh api "repos/$repo/branches/best-known-v1.26" --jq .commit.sha)
+          test "$good" = "117b16f93b8c9f8dd2594ff97569bcf84aec4f83"
+          old=$(gh api "repos/$repo/branches/gecko-resume-load-v126" --jq .commit.sha)
+          test "$old" = "0de676285a70ce7896b74ea68c50cc14651aaa32"
+          gh release view v1.26 --repo "$repo" --json assets \
+            --jq '.assets[].name' | grep -Fxq 'com.551uk.chatgptgecko_0.19.0-126_iphoneos-arm64.deb'
+          gh api --method DELETE "repos/$repo/git/refs/heads/gecko-resume-load-v126" --silent
+          if gh api "repos/$repo/branches/gecko-resume-load-v126" --silent >/dev/null 2>&1; then
+            echo "::error::Bad v1.26 branch still exists"
+            exit 1
+          fi
+          gh api "repos/$repo/branches/main" --jq .name | grep -Fxq main
+          gh api "repos/$repo/branches/best-known-v1.26" --jq .commit.sha | grep -Fxq "$good"
+          echo "SUCCESS: Bad gecko-resume-load-v126 deleted; best-known-v1.26, main, and v1.26 release preserved"
