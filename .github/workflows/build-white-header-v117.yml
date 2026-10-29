@@ -88,22 +88,19 @@ jobs:
           assert m["version"]=="1.0.117"
           assert any("chatgpt-app-shell.js" in e.get("js",[]) for e in m.get("content_scripts",[]))
           code=(manifest.parent/"chatgpt-app-shell.js").read_text()
-          assert "restoreConversationHeaderBackground()" in js
-          assert "function restoreConversationHeaderBackground() {" in js
-          repair = js.split("function restoreConversationHeaderBackground() {",1)[1].split("\n  function applyAppPresentation(",1)[0]
+          assert "restoreMainHeaderLeftIconSizes(chosen);" in code
+          assert "cg-ios16-left-header-size-stable" in code
+          assert "function restoreConversationHeaderBackground() {" in code
+          repair = code.split("function restoreConversationHeaderBackground() {", 1)[1].split("\n  function applyAppPresentation(", 1)[0]
           assert "stabilizeTopActionBar()" not in repair
           assert "cg-ios16-solid-topbar" in repair
           assert 'window.location.pathname === "/"' in repair
           assert "if (element.closest(panelSelector)) return false" in repair
-          recovery = js.split("function recoverHeaderInkAfterTransition() {",1)[1].split("\n  function sidebarInteraction(",1)[0]
+          recovery = code.split("function recoverHeaderInkAfterTransition() {", 1)[1].split("\n  function sidebarInteraction(", 1)[0]
           assert "restoreConversationHeaderBackground();" in recovery
           assert "recoverInkAndWhiteStrip();" in recovery
-          assert 'window.addEventListener("popstate"' in js
-                    assert "restoreMainHeaderLeftIconSizes(chosen);" in code
-          assert "cg-ios16-left-header-size-stable" in code
-          assert "restoreConversationHeaderBackground()" in code
-          assert "recoverInkAndWhiteStrip()" in code
-          print("PASS: App bundle, Gecko helper and left icon sizing script included")
+          assert 'window.addEventListener("popstate"' in code
+          print("PASS: Embedded Gecko script restores chat white bar separately from icon sizing")
           PY_CHECK
           shasum -a 256 "$f"
       - name: Upload verified DEB
