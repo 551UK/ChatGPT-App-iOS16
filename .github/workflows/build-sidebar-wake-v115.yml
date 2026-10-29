@@ -40,9 +40,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin sidebar-black-streaming-v115 --depth=1
-          ! git diff --quiet origin/sidebar-black-streaming-v115 HEAD -- web/chatgpt-app-shell.js
-          git diff --quiet origin/sidebar-black-streaming-v115 HEAD -- src prefs scripts/rebrand.py scripts/inject.py scripts/icon.py
+          git fetch origin sidebar-black-streaming-v114 --depth=1
+          ! git diff --quiet origin/sidebar-black-streaming-v114 HEAD -- web/chatgpt-app-shell.js
+          git diff --quiet origin/sidebar-black-streaming-v114 HEAD -- src prefs scripts/rebrand.py scripts/inject.py scripts/icon.py
           node --check web/chatgpt-app-shell.js
           bash -n scripts/package.sh
           python3 - <<'PY'
