@@ -37,13 +37,13 @@ jobs:
           const assert = require('node:assert/strict');
           const original = cp.execFileSync('git', ['show','origin/top-icons-persist-streaming-v109:web/chatgpt-app-shell.js'], {encoding:'utf8'});
           const actual = fs.readFileSync('web/chatgpt-app-shell.js','utf8');
-          const before = '    const visibleTopControls = allControls.filter((element) => {\n      const rect = element.getBoundingClientRect();';
-          const after = '    const visibleTopControls = allControls.filter((element) => {\n      // v1.10: Never classify chat-history entries, message controls or\n      // other iconless text links as top-header icons. When a sidebar list\n      // scrolls past the first 140px, v1.08/v1.09 could mistakenly scale\n      // its chat titles as if they were toolbar buttons.\n      if (element.closest("#browser-sidebar-popover, nav[aria-label=\\'Chat history\\'], [data-message-author-role], [data-testid^=\\'conversation-turn\\']")) return false;\n      if (!element.querySelector("svg")) return false;\n      const rect = element.getBoundingClientRect();\n      if (rect.width > 110 || rect.height > 85) return false;';
-          const oldSvg = '      if (svg.closest(".cg-ios16-sidebar-title-offset")) continue;';
-          const newSvg = '      if (svg.closest(".cg-ios16-sidebar-title-offset, #browser-sidebar-popover, nav[aria-label=\\'Chat history\\'], [data-message-author-role], [data-testid^=\\'conversation-turn\\']")) continue;';
-          assert.equal(original.split(before).length, 2);
+          const old1 = "    const visibleTopControls = allControls.filter((element) => {\n      const rect = element.getBoundingClientRect();";
+          const new1 = "    const visibleTopControls = allControls.filter((element) => {\n      // v1.10: Never classify chat-history entries, message controls or\n      // other iconless text links as top-header icons. When a sidebar list\n      // scrolls past the first 140px, v1.08/v1.09 could mistakenly scale\n      // its chat titles as if they were toolbar buttons.\n      if (element.closest(\"#browser-sidebar-popover, nav[aria-label='Chat history'], [data-message-author-role], [data-testid^='conversation-turn']\")) return false;\n      if (!element.querySelector(\"svg\")) return false;\n      const rect = element.getBoundingClientRect();\n      if (rect.width > 110 || rect.height > 85) return false;";
+          const oldSvg = "      if (svg.closest(\".cg-ios16-sidebar-title-offset\")) continue;";
+          const newSvg = "      if (svg.closest(\".cg-ios16-sidebar-title-offset, #browser-sidebar-popover, nav[aria-label='Chat history'], [data-message-author-role], [data-testid^='conversation-turn']\")) continue;";
+          assert.equal(original.split(old1).length, 2);
           assert.equal(original.split(oldSvg).length, 2);
-          assert.equal(actual, original.replace(before,after).replace(oldSvg,newSvg), 'Unexpected changes to v1.09 except safety filters');
+          assert.equal(actual, original.replace(old1,new1).replace(oldSvg,newSvg), 'Unexpected changes to working v1.09 baseline');
           assert(actual.includes('#browser-sidebar-popover { width: 75vw !important; }'), 'Known-good sidebar width missing');
           console.log('PASS: v1.09 preserved except safe header-only selection filters.');
           JS
@@ -85,7 +85,7 @@ jobs:
           set -euo pipefail
           file=dist/com.551uk.chatgptgecko_0.19.0-110_iphoneos-arm64.deb
           if ! gh release view v1.10 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create v1.10 --repo "$GITHUB_REPOSITORY" --target top-icons-persist-streaming-v110 --prerelease --title "ChatGPT v1.10 - Prevent Chat Titles Enlarging While Scrolling" --notes "Build from v1.09 with v1.08 working 75vw sidebar preserved. Corrects accidental enlargement of scrolling chat titles by excluding chat-history and message content from top-header detection; only small SVG header controls may be scaled. Keeps v1.09 persistent black header icons."
+            gh release create v1.10 --repo "$GITHUB_REPOSITORY" --target header-only-scaling-v110 --prerelease --title "ChatGPT v1.10 - Prevent Chat Titles Enlarging While Scrolling" --notes "Build from v1.09 with v1.08 working 75vw sidebar preserved. Corrects accidental enlargement of scrolling chat titles by excluding chat-history and message content from top-header detection; only small SVG header controls may be scaled. Keeps v1.09 persistent black header icons."
           fi
           success=0
           for attempt in 1 2 3 4; do
