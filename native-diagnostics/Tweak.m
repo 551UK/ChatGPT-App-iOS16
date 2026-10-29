@@ -357,16 +357,9 @@ static NSString *CGShort(NSString *s) {
     // Attach the nearest available foreground/child-process and tab-restore
     // events to each report. The original IPS remains byte-for-byte intact.
     NSString *context=[NSString stringWithFormat:
-      @"
-
---- Recent native process + app lifecycle ---
-%@"
-      "
---- Recent Gecko session snapshots ---
-%@"
-      "
---- Recent runtime samples (main app, not Helper memory) ---
-%@",
+      @"\n\n--- Recent native process + app lifecycle ---\n%@"
+      "\n--- Recent Gecko session snapshots ---\n%@"
+      "\n--- Recent runtime samples (main app, not Helper memory) ---\n%@",
       [self recentContext:@"events.log" maxLines:40],
       [self recentContext:@"session-recovery.tsv" maxLines:20],
       [self recentContext:@"timeline.tsv" maxLines:16]];
