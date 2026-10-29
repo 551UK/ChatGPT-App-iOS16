@@ -57,8 +57,6 @@
     // independent v1.16 pair detector catches up, protect it immediately too.
     "html body .cg-ios16-topbar-control[data-cg-icon-role='sidebar'] { color: #000000 !important; opacity: 1 !important; }",
     "html body .cg-ios16-topbar-control[data-cg-icon-role='sidebar'] svg { color: #000000 !important; opacity: 1 !important; filter: brightness(0) !important; -webkit-filter: brightness(0) !important; }",
-    // This independent CSS translate does not affect sizing, layout or icon transforms.
-    ".cg-ios16-sidebar-title-offset { translate: 10% 0 !important; }",
     // v1.08: Firefox-confirmed exact sidebar popover on mobile (75vw = 322.5px at 430px).
     // Keep chat titles, buttons, navigation, header and scroll behavior untouched.
     "@media (max-width: 799px) { #browser-sidebar-popover { width: 75vw !important; } }",
@@ -641,54 +639,6 @@
     return true;
   }
 
-  // v0.98 — move ONLY the combined ChatGPT title + chevron 10% to the
-  // right, measured against the group's own width. The search and sidebar
-  // buttons remain in their original positions and neither glyph is resized.
-  // Work independently of history/sidebar DOM detection (which is unreliable
-  // across account, conversation and menu states).
-  function positionSidebarTitleAndChevron() {
-    const marker = "cg-ios16-sidebar-title-offset";
-    const text = (node) => normalizedText(node) === "ChatGPT";
-    const isTitleGroup = (el, labelWidth) => {
-      if (!el || !text(el)) return false;
-      const svgs = el.querySelectorAll("svg");
-      if (svgs.length < 1 || svgs.length > 2) return false;
-      // The whole toolbar has multiple icons and must never be translated.
-      if (el.querySelector("input, textarea, [contenteditable='true']")) return false;
-      const rect = el.getBoundingClientRect();
-      if (rect.width < 45 || rect.width > innerWidth * 0.58 ||
-          rect.height < 14 || rect.height > 75 ||
-          rect.top < -10 || rect.top > 150 ||
-          rect.left < -30 || rect.left > innerWidth * 0.20) return false;
-      if (labelWidth && rect.width > labelWidth + 80) return false;
-      return getComputedStyle(el).visibility !== "hidden";
-    };
-
-    // Prefer the actual clickable model/menu title that contains its chevron.
-    let group = Array.from(document.querySelectorAll("button, a, [role='button']"))
-      .find(el => isTitleGroup(el));
-
-    // Some ChatGPT layouts use an unlabelled div as the combined title/button.
-    if (!group) {
-      const labels = document.querySelectorAll("span, div, h1, h2, h3");
-      outer: for (const label of labels) {
-        const ownText = Array.from(label.childNodes)
-          .filter(node => node.nodeType === 3).map(node => node.textContent).join("").trim();
-        if (ownText !== "ChatGPT") continue;
-        const w = label.getBoundingClientRect().width;
-        let parent = label.parentElement;
-        for (let depth = 0; parent && depth < 4; depth++, parent = parent.parentElement) {
-          if (isTitleGroup(parent, w)) { group = parent; break outer; }
-        }
-      }
-    }
-
-    for (const previous of document.querySelectorAll("." + marker)) {
-      if (previous !== group) previous.classList.remove(marker);
-    }
-    if (group) group.classList.add(marker);
-  }
-
   // A pencil has a long diagonal stroke; the sidebar toggle's square and
   // vertical divider do not. Read SVG geometry rather than guessing which
   // header icon comes first when React swaps the two controls.
@@ -772,7 +722,7 @@
           art.top < -10 || art.top > 112 ||
           art.bottom > 155 ||
           art.left < -10 || art.left > innerWidth * 0.43) continue;
-      if (svg.closest(".cg-ios16-sidebar-title-offset, #browser-sidebar-popover, nav[aria-label='Chat history'], [data-message-author-role], [data-testid^='conversation-turn']")) continue;
+      if (svg.closest("#browser-sidebar-popover, nav[aria-label='Chat history'], [data-message-author-role], [data-testid^='conversation-turn']")) continue;
       const computed = getComputedStyle(svg);
       if (computed.display === "none" || computed.visibility === "hidden") continue;
       const control = svg.closest("button, [role='button'], a[href]");
@@ -961,7 +911,6 @@
     if (updateHeader) {
       // Header sizing must not rerun for streaming text/tool progress.
       stabilizeTopActionBar();
-      positionSidebarTitleAndChevron();
     }
     // Icon ink is a separate concern: Gecko/React can replace or unmount
     // the left sidebar SVG while the chat is streaming. Detect and mark
