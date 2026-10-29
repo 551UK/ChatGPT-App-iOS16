@@ -1,0 +1,98 @@
+name: Build standalone native ChatGPT crash diagnostics 2.0
+
+on:
+  push:
+    branches: [native-crash-diagnostics-v20]
+    paths:
+      - 'native-diagnostics/**'
+      - '.github/workflows/build-native-diagnostics-v20.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cg-native-diag-v20
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare packaging requirements
+        run: |
+          brew install ldid dpkg
+      - name: Configure Theos and iOS SDK
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+      - name: Ensure tweak is separate, not loading inside Helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import plistlib
+          p=Path("native-diagnostics/CGNativeDiag.plist")
+          f=plistlib.loads(p.read_bytes())["Filter"]
+          assert f["Bundles"] == ["com.551uk.chatgptios16"],f
+          src=Path("native-diagnostics/Tweak.m").read_text()
+          assert "UIApplicationDidBecomeActiveNotification" in src
+          assert "UIDocumentPickerViewController" in src
+          assert "UIActivityViewController" in src
+          assert "EXC_BAD_ACCESS" in src
+          assert "TraceJitFrames" in src
+          assert "CommonCrypto" in src
+          assert "Capture crash reports now" in src
+          assert "for (const" not in src
+          assert "MutationObserver" not in src
+          assert "LaunchDaemon" not in str(Path("native-diagnostics/Makefile").read_text())
+          print("PASS: main-app-only injection; complete IPS import/export; no web-message observer or daemon")
+          PY
+          test -f native-diagnostics/control
+          test -f native-diagnostics/Makefile
+      - name: Build separate rootless diagnostic tweak
+        run: |
+          set -euo pipefail
+          make -C native-diagnostics package FINALPACKAGE=1
+      - name: Inspect compiled tweak package
+        run: |
+          set -euo pipefail
+          mkdir -p build/native-diagnostics
+          find native-diagnostics/packages -maxdepth 2 -type f -name '*.deb' -print
+          f="$(find native-diagnostics/packages -maxdepth 2 -type f -name '*.deb' | head -1)"
+          test -s "$f"
+          test "$(dpkg-deb --field "$f" Package)" = "com.551uk.chatgpt-native-diagnostics"
+          test "$(dpkg-deb --field "$f" Version)" = "2.0.0"
+          test "$(dpkg-deb --field "$f" Architecture)" = "iphoneos-arm64"
+          dpkg-deb -c "$f" | tee build/native-diagnostics/package-files.txt
+          grep -Fq 'CGNativeDiag.dylib' build/native-diagnostics/package-files.txt
+          grep -Fq 'CGNativeDiag.plist' build/native-diagnostics/package-files.txt
+          cp "$f" build/native-diagnostics/com.551uk.chatgpt-native-diagnostics_2.0.0_iphoneos-arm64.deb
+          shasum -a 256 build/native-diagnostics/*.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-Native-Diagnostics-2.0.0-rootless
+          path: build/native-diagnostics/com.551uk.chatgpt-native-diagnostics_2.0.0_iphoneos-arm64.deb
+          if-no-files-found: error
+      - name: Publish independent prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          f=build/native-diagnostics/com.551uk.chatgpt-native-diagnostics_2.0.0_iphoneos-arm64.deb
+          if gh release view chatgpt-native-diagnostics-v2.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload chatgpt-native-diagnostics-v2.0 "$f" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create chatgpt-native-diagnostics-v2.0 "$f" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target native-crash-diagnostics-v20 \
+              --prerelease \
+              --title "ChatGPT Native Diagnostics 2.0 — independent in-app Helper crash collector" \
+              --notes "A separate rootless tweak injected only in the custom ChatGPT main app, not its Gecko Helper. Draggable native Diagnostics button, manual and on-foreground IPS capture, JIT frame analysis, app/memory lifecycle timeline, import from Files and native Share sheet export. No launch daemon and no message-stream observer. Does not modify ChatGPT v1.26. On-device verification required."
+          fi
+          gh release view chatgpt-native-diagnostics-v2.0 --repo "$GITHUB_REPOSITORY" \
+             --json assets --jq '.assets[].name' | grep -Fxq "$(basename "$f")"
