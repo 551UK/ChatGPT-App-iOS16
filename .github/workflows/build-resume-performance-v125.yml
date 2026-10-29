@@ -1,0 +1,89 @@
+name: ChatGPT v1.25 - limit Gecko resume DOM work
+
+on:
+  push:
+    branches: [reduce-resume-dom-work-v125]
+    paths:
+      - 'web/chatgpt-app-shell.js'
+      - 'scripts/package.sh'
+      - 'tests/resume-mutation-load-v125.test.cjs'
+      - '.github/workflows/build-resume-performance-v125.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify stable v1.24 features and mutation/resume regression tests
+        run: |
+          set -euo pipefail
+          git fetch origin best-known-v1.24 --depth=1
+          git diff --exit-code origin/best-known-v1.24 HEAD -- src prefs
+          node --check web/chatgpt-app-shell.js
+          node tests/resume-mutation-load-v125.test.cjs
+          bash -n scripts/package.sh
+          grep -Fq 'manifest["version"] = "1.0.125"' scripts/package.sh
+          grep -Fq 'Version: 0.19.0-125' scripts/package.sh
+      - name: Install packaging dependencies
+        run: |
+          brew install ldid dpkg
+          python3 -m pip install 'lief>=0.17,<0.18' 'Pillow>=10,<13'
+      - name: Set up Theos and iOS SDKs
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+      - name: Build v1.25 independent from v1.24
+        run: bash scripts/package.sh
+      - name: Verify DEB and embedded performance script
+        run: |
+          set -euo pipefail
+          f=dist/com.551uk.chatgptgecko_0.19.0-125_iphoneos-arm64.deb
+          test -s "$f"
+          test "$(dpkg-deb --field "$f" Package)" = "com.551uk.chatgptgecko"
+          test "$(dpkg-deb --field "$f" Version)" = "0.19.0-125"
+          test "$(dpkg-deb --field "$f" Architecture)" = "iphoneos-arm64"
+          python3 - <<'PY'
+          from pathlib import Path
+          import plistlib,json
+          app=Path('build/work/unpacked/Payload/ChatGPT.app')
+          assert plistlib.loads((app/'Info.plist').read_bytes())['CFBundleIdentifier']=='com.551uk.chatgptios16'
+          helper=app/'PlugIns/Reynard Helper.appex/Info.plist'
+          assert plistlib.loads(helper.read_bytes())['CFBundleIdentifier']=='com.551uk.chatgptios16.Helper'
+          m=next(app.rglob('extensions/readerview/manifest.json'))
+          assert json.loads(m.read_text())['version']=='1.0.125'
+          code=(m.parent/'chatgpt-app-shell.js').read_text()
+          assert 'isChatContentMutation(mutation)' in code
+          assert 'if (!headerChanged && mutations.every(isChatContentMutation)) return;' in code
+          assert 'lastRecoveryStarted' in code
+          assert '}, 160);' in code
+          assert '#browser-sidebar-popover { width: 75vw' in code
+          assert 'cg-ios16-left-header-size-stable' in code
+          PY
+          shasum -a 256 "$f"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-0.19.0-125-Reduce-Gecko-Resume-DOM
+          path: dist/com.551uk.chatgptgecko_0.19.0-125_iphoneos-arm64.deb
+          if-no-files-found: error
+      - name: Publish independent prerelease without touching v1.24
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          file=dist/com.551uk.chatgptgecko_0.19.0-125_iphoneos-arm64.deb
+          if gh release view v1.25-perf-test --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v1.25-perf-test "$file" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create v1.25-perf-test "$file" --repo "$GITHUB_REPOSITORY" --target reduce-resume-dom-work-v125 --prerelease --title "ChatGPT v1.25 - Resume/DOM Performance Test" --notes "Based on unchanged v1.24 except the scheduled page presentation updates. Ignore message-only mutations, throttle other refreshes to 160ms, coalesce resume events, and skip rebuilding a healthy white header. No icon, title, sidebar, Share, Settings or native Gecko source changes. This is a crash hypothesis experiment, not a confirmed crash fix. v1.24 remains stable and latest."
+          fi
