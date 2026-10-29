@@ -23,6 +23,8 @@
     ".cg-ios16-topbar-control { transform: scale(1.30) !important; transform-origin: center center !important; }",
     // Independent Share-button sizing: the sidebar may temporarily hide or rearrange the underlying header.
     "html body .cg-ios16-share-control-stable { transform: scale(1.30) !important; transform-origin: center center !important; transition: none !important; animation: none !important; }",
+    // First-paint fallback for the accessible header Share button, before JS marks it.
+    ":is(header, [role='banner'], #page-header, #conversation-header-actions) :is(button, a, [role='button']):is([aria-label='Share'], [title='Share']) { transform: scale(1.30) !important; transform-origin: center center !important; transition: none !important; animation: none !important; }",
     // Only homepage top-corner controls use 40%; chat header keeps 30%.
     ".cg-ios16-topbar-control.cg-ios16-home-topbar-control { transform: scale(1.40) !important; }",
     ".cg-ios16-topbar-control[data-cg-icon-role='sidebar'] { transform: scale(1.40) !important; }",
@@ -123,29 +125,25 @@
     return role === "new" || role === "sidebar" ? role : "";
   }
 
-  // Keep Share large independently of the top-row detector. Opening a mobile
-  // sidebar changes which controls appear visible; do not let that transient
-  // state unset the Share button's normal 1.30x size.
+  // One-way styling for the real header Share button. React may temporarily
+  // blank its text while inserting streaming/tool-result rows. Never toggle the
+  // size class off a still-connected Share node just because its label or
+  // position temporarily changes. Detached nodes clean themselves up.
   function keepHeaderShareEnlarged(allControls) {
     for (const element of allControls) {
+      if (element.classList.contains("cg-ios16-share-control-stable")) continue;
       if (element.closest(
         "#stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, " +
-        "#sidebar-header, aside, [role='dialog'], [aria-modal='true']"
+        "#sidebar-header, #browser-sidebar-popover, nav[aria-label='Chat history'], " +
+        "[data-message-author-role], [data-testid^='conversation-turn'], " +
+        "aside, [role='dialog'], [aria-modal='true']"
       )) continue;
       const aria = (element.getAttribute("aria-label") || "").trim().toLowerCase();
       const title = (element.getAttribute("title") || "").trim().toLowerCase();
-      // Read the own button label only, not a large ancestor's text.
       const ownText = (element.textContent || "").trim().toLowerCase();
       const isShare = ownText === "share" || aria === "share" ||
         title === "share" || aria.startsWith("share ") || title.startsWith("share ");
-      if (!isShare) {
-        // React can reuse a button; do not leave a stale marker on an
-        // unrelated control, but do keep it through sidebar transitions.
-        if (element.classList.contains("cg-ios16-share-control-stable")) {
-          element.classList.remove("cg-ios16-share-control-stable");
-        }
-        continue;
-      }
+      if (!isShare) continue;
       const rect = element.getBoundingClientRect();
       if (rect.width < 20 || rect.height < 20 ||
           rect.top < -12 || rect.top >= Math.min(145, innerHeight * 0.24) ||
@@ -729,34 +727,73 @@
     });
   }
 
-  function applyAppPresentation() {
+  // Message streams change hundreds of text/child nodes without changing
+  // the header. Never rerun topbar row classification for those updates.
+  // However, React replacing an actual header button must be detected before
+  // paint, so examine the specific mutated subtree rather than the whole page.
+  function mutationChangesHeader(mutations) {
+    const header = "header, [role='banner'], #page-header, " +
+      "#conversation-header-actions, .cg-ios16-topbar-control, " +
+      ".cg-ios16-share-control-stable";
+    const content = "[data-message-author-role], " +
+      "[data-testid^='conversation-turn'], [role='log']";
+    for (const mutation of mutations) {
+      const target = mutation.target.nodeType === 1 ?
+        mutation.target : mutation.target.parentElement;
+      if (!target) continue;
+      if (target.closest(content)) continue;
+      if (target.closest("#browser-sidebar-popover, " +
+        "#stage-popover-sidebar, #stage-slideover-sidebar")) continue;
+      if (target.closest(header)) return true;
+      if (mutation.type === "childList") {
+        for (const node of [...mutation.addedNodes, ...mutation.removedNodes]) {
+          if (node.nodeType !== 1) continue;
+          if (node.matches(header)) return true;
+          if ((target === document.body || target === document.documentElement) &&
+              node.querySelector(header)) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function applyAppPresentation(updateHeader = true) {
     installStyle();
     dismissAppPromotion();
-    stabilizeTopActionBar();
-    positionSidebarTitleAndChevron();
-    makeTopLeftHeaderIconsBlack();
+    if (updateHeader) {
+      stabilizeTopActionBar();
+      positionSidebarTitleAndChevron();
+      makeTopLeftHeaderIconsBlack();
+    }
     hideSuggestion();
     hideDisclaimers();
     if (document.body) revealCleanPage();
   }
 
   let timer = null;
-  function schedule() {
+  let pendingHeaderUpdate = false;
+  function schedule(updateHeader = true) {
+    pendingHeaderUpdate = pendingHeaderUpdate || updateHeader;
     clearTimeout(timer);
-    timer = setTimeout(applyAppPresentation, 16);
+    timer = setTimeout(() => {
+      const doHeader = pendingHeaderUpdate;
+      pendingHeaderUpdate = false;
+      applyAppPresentation(doHeader);
+    }, 16);
   }
 
   installStyle();
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", applyAppPresentation, { once: true });
+    document.addEventListener("DOMContentLoaded", () => applyAppPresentation(true), { once: true });
   } else {
-    applyAppPresentation();
+    applyAppPresentation(true);
   }
 
-  const observer = new MutationObserver(() => {
-    // Hide this exact mobile-web app promotion before the next paint.
+  const observer = new MutationObserver((mutations) => {
+    // Ignore streaming message/tool-progress changes when deciding whether to
+    // touch header sizing. Still dismiss app promotions and update footer.
     dismissAppPromotion();
-    schedule();
+    schedule(mutationChangesHeader(mutations));
   });
   observer.observe(document.documentElement, {
     childList: true,
@@ -765,6 +802,6 @@
     attributes: true,
     attributeFilter: ["aria-label", "title", "data-testid", "d", "href", "xlink:href", "viewBox", "x", "y", "x1", "x2", "y1", "y2", "width", "height", "points", "cx", "cy", "r"]
   });
-  window.addEventListener("resize", schedule, { passive: true });
-  window.addEventListener("popstate", schedule);
+  window.addEventListener("resize", () => schedule(true), { passive: true });
+  window.addEventListener("popstate", () => schedule(true));
 })();
