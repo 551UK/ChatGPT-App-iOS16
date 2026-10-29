@@ -25,6 +25,11 @@
     ".cg-ios16-topbar-control.cg-ios16-home-topbar-control { transform: scale(1.40) !important; }",
     ".cg-ios16-topbar-control[data-cg-icon-role='sidebar'] { transform: scale(1.40) !important; }",
     ".cg-ios16-topbar-control[data-cg-icon-role='new'] { transform: scale(1.50) !important; }",
+    // v1.00: set actual SVG artwork black, including faded/disabled controls.
+    // Brightness(0) preserves transparent portions and the original SVG geometry.
+    ".cg-ios16-pure-black-header-control { color: #000000 !important; opacity: 1 !important; }",
+    ".cg-ios16-pure-black-header-control svg { color: #000000 !important; opacity: 1 !important; filter: brightness(0) !important; -webkit-filter: brightness(0) !important; }",
+    ".cg-ios16-pure-black-header-control svg * { opacity: 1 !important; }",
     // This independent CSS translate does not affect sizing, layout or icon transforms.
     ".cg-ios16-sidebar-title-offset { translate: 10% 0 !important; }",
   ].join("\n");
@@ -611,6 +616,48 @@
     if (group) group.classList.add(marker);
   }
 
+  // v1.00: independently locate the actual TWO top-left toolbar icons.
+  // The DOM may swap sidebar/New Chat, use unlabeled buttons, or change SVG
+  // paths between conversations. Never depend on header-row role discovery
+  // or whether the sidebar title can be identified.
+  function makeTopLeftHeaderIconsBlack() {
+    const marker = "cg-ios16-pure-black-header-control";
+    const candidates = [];
+    for (const svg of document.querySelectorAll("svg")) {
+      const art = svg.getBoundingClientRect();
+      if (art.width < 16 || art.height < 16 ||
+          art.width > 90 || art.height > 90 ||
+          art.top < -10 || art.top > 110 ||
+          art.bottom > 155 ||
+          art.left < -10 || art.left > innerWidth * 0.49) continue;
+
+      const button = svg.closest("button, [role='button'], a[href]");
+      if (!button || button.querySelectorAll("svg").length !== 1) continue;
+      if (normalizedText(button)) continue;
+      if (button.closest(".cg-ios16-sidebar-title-offset")) continue;
+      const rect = button.getBoundingClientRect();
+      if (rect.top < -12 || rect.top > 110 ||
+          rect.bottom < 0 || rect.width < 20 || rect.width > 105 ||
+          rect.height < 20 || rect.height > 105 ||
+          rect.left < -10 || rect.left > innerWidth * 0.49) continue;
+      const style = getComputedStyle(button);
+      if (style.display === "none" || style.visibility === "hidden") continue;
+      candidates.push({button, x: rect.left, y: rect.top});
+    }
+    // Use geometry, not order-specific selectors: both actual icon controls
+    // are black, whether New Chat or Sidebar appears first.
+    candidates.sort((a, b) => a.x - b.x || a.y - b.y);
+    const selected = new Set();
+    for (const candidate of candidates) {
+      if (selected.size === 2) break;
+      selected.add(candidate.button);
+    }
+    for (const old of document.querySelectorAll("." + marker)) {
+      if (!selected.has(old)) old.classList.remove(marker);
+    }
+    for (const button of selected) button.classList.add(marker);
+  }
+
   let revealed = false;
   function revealCleanPage() {
     if (revealed) return;
@@ -628,6 +675,7 @@
     dismissAppPromotion();
     stabilizeTopActionBar();
     positionSidebarTitleAndChevron();
+    makeTopLeftHeaderIconsBlack();
     hideSuggestion();
     hideDisclaimers();
     if (document.body) revealCleanPage();
