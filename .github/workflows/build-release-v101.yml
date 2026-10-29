@@ -1,0 +1,86 @@
+name: Build ChatGPT v1.01 sidebar icon black repair
+on:
+  push:
+    branches: [sidebar-icon-true-black-v101]
+    paths:
+      - 'web/chatgpt-app-shell.js'
+      - 'scripts/package.sh'
+      - 'tests/header-icons-black.test.cjs'
+      - '.github/workflows/build-release-v101.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify v0.98 base preserved and both swapped icons forced black
+        run: |
+          set -euo pipefail
+          node --check web/chatgpt-app-shell.js
+          bash -n scripts/package.sh
+          git diff --exit-code origin/sidebar-title-right-v098 HEAD -- src prefs
+          grep -Fq 'Version: 0.19.0-101' scripts/package.sh
+          grep -Fq 'manifest["version"] = "1.0.101"' scripts/package.sh
+          node <<'JS'
+          const fs = require("fs");
+          const js = fs.readFileSync("web/chatgpt-app-shell.js", "utf8");
+          if (!js.includes(".cg-ios16-sidebar-title-offset { translate: 10% 0 !important; }")) throw Error("v0.98 title positioning lost");
+          if (!js.includes("positionSidebarTitleAndChevron();")) throw Error("v0.98 title action lost");
+          if (js.includes("resizeSidebarText()")) throw Error("v0.97 unintended text scaling");
+          for (const size of [
+            ".cg-ios16-topbar-control[data-cg-icon-role='sidebar'] { transform: scale(1.40) !important; }",
+            ".cg-ios16-topbar-control[data-cg-icon-role='new'] { transform: scale(1.50) !important; }"
+          ]) if (!js.includes(size)) throw Error("Original icon sizing lost");
+          if (!js.includes(".cg-ios16-direct-black-svg { color: #000000 !important; opacity: 1 !important; filter: brightness(0) !important;")) throw Error("Direct black SVG filter missing");
+          if (!js.includes(".cg-ios16-direct-black-wrapper { opacity: 1 !important; filter: none !important;")) throw Error("Grey wrapper opacity not fixed");
+          JS
+          node tests/header-icons-black.test.cjs
+      - name: Install packaging dependencies
+        run: |
+          brew install ldid dpkg
+          python3 -m pip install 'lief>=0.17,<0.18' 'Pillow>=10,<13'
+      - name: Set up Theos and iOS SDKs
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+      - name: Build v1.01
+        run: bash scripts/package.sh
+      - name: Verify rootless DEB
+        run: |
+          set -euo pipefail
+          file=dist/com.551uk.chatgptgecko_0.19.0-101_iphoneos-arm64.deb
+          test -s "$file"
+          test "$(dpkg-deb --field "$file" Package)" = "com.551uk.chatgptgecko"
+          test "$(dpkg-deb --field "$file" Version)" = "0.19.0-101"
+          test "$(dpkg-deb --field "$file" Architecture)" = "iphoneos-arm64"
+          dpkg-deb --contents "$file" > /tmp/chatgpt-v101-contents.txt
+          grep -Fq 'ChatGPT.app/' /tmp/chatgpt-v101-contents.txt
+          grep -Fq 'ChatGPTPrefs.bundle/' /tmp/chatgpt-v101-contents.txt
+          shasum -a 256 "$file"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-0.19.0-101-black-header-icons
+          path: dist/com.551uk.chatgptgecko_0.19.0-101_iphoneos-arm64.deb
+          if-no-files-found: error
+      - name: Publish v1.01 test prerelease without changing v0.98 or v0.94
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          file=dist/com.551uk.chatgptgecko_0.19.0-101_iphoneos-arm64.deb
+          if gh release view v1.01 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v1.01 "$file" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create v1.01 "$file" --repo "$GITHUB_REPOSITORY" --target sidebar-icon-true-black-v101 --prerelease --title "ChatGPT v1.01 - Sidebar Icon Pure Black Fix" --notes "Built from v1.00, preserving v0.98 title movement and v0.94 icon dimensions. Forces pure black on both top-left SVGs directly and restores opacity on small wrappers so Sidebar is not grey. Tests both swapped orders. Prior releases untouched."
+          fi
+          gh release view v1.01 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | [.name,.size,.url] | @tsv'
