@@ -91,7 +91,7 @@ jobs:
           assert "restoreMainHeaderLeftIconSizes(chosen);" in code
           assert "cg-ios16-left-header-size-stable" in code
           assert "const HEADER_WHITE_BAR_TRIM_PX = 3;" in code
-          assert code.count("HEADER_WHITE_BAR_TRIM_PX") == 3
+          assert js.count("HEADER_WHITE_BAR_TRIM_PX") == 3
           assert "function restoreConversationHeaderBackground() {" in code
           repair = code.split("function restoreConversationHeaderBackground() {", 1)[1].split("\n  function applyAppPresentation(", 1)[0]
           assert "stabilizeTopActionBar()" not in repair
@@ -104,7 +104,7 @@ jobs:
           assert code.count("HEADER_WHITE_BAR_TRIM_PX") == 3
           assert "Math.min(bestRect.height, Math.ceil(rowBottom - bestRect.top)) -" in code
           assert "Math.min(r.height, Math.ceil(lastButtonBottom - r.top)) -" in code
-          assert "const HEADER_WHITE_BAR_TRIM_PX = 3;" in code
+          assert "const HEADER_WHITE_BAR_TRIM_PX = 3;" in js
           assert 'window.addEventListener("popstate"' in code
           print("PASS: Embedded Gecko script restores chat white bar separately from icon sizing")
           PY_CHECK
