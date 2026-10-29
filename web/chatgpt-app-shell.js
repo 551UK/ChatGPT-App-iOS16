@@ -7,6 +7,26 @@
   const PREPARE_ATTR = "data-cg-ios16-preparing";
   // Subtle white-strip reduction only; independent of icon and Share size.
   const HEADER_WHITE_BAR_TRIM_PX = 3;
+  const CG_HOME_ROUTE_TITLE_MARKER = "ChatGPT - New Chat (iOS16)";
+
+  // Reynard saves document.title to its native tab database, including for
+  // same-document ChatGPT navigation that may not commit a new Gecko URL.
+  // Mark only the exact New Chat / home route. Other ChatGPT pages retain
+  // their own titles and original saved session state.
+  function syncRestorableHomeState() {
+    if (!document.head || !/^chatgpt\.com$/i.test(location.hostname))
+      return;
+    const onHome = location.pathname === "/";
+    if (onHome) {
+      if (document.title !== CG_HOME_ROUTE_TITLE_MARKER)
+        document.title = CG_HOME_ROUTE_TITLE_MARKER;
+    } else if (document.title === CG_HOME_ROUTE_TITLE_MARKER) {
+      // Do not allow the Home marker to follow SPA navigation into a chat,
+      // Settings or another page. ChatGPT will set its normal page title.
+      document.title = "ChatGPT";
+    }
+  }
+
 
   // document_start runs before ChatGPT paints. Keep the document invisible
   // until the app-only cleanup has been applied, preventing the footer and
@@ -956,6 +976,7 @@
     // Ignore streaming message/tool-progress changes when deciding whether to
     // touch header sizing. Still dismiss app promotions and update footer.
     dismissAppPromotion();
+    syncRestorableHomeState();
     schedule(mutationChangesHeader(mutations));
   });
   observer.observe(document.documentElement, {
@@ -965,6 +986,20 @@
     attributes: true,
     attributeFilter: ["aria-label", "title", "data-testid", "d", "href", "xlink:href", "viewBox", "x", "y", "x1", "x2", "y1", "y2", "width", "height", "points", "cx", "cy", "r"]
   });
+  // Ensure Home is recorded before background suspension and after SPA
+  // route changes. The existing observer covers React-driven navigation,
+  // while these events cover a navigation with little visible DOM mutation.
+  syncRestorableHomeState();
+  document.addEventListener("DOMContentLoaded", syncRestorableHomeState, { once: true });
+  document.addEventListener("visibilitychange", syncRestorableHomeState);
+  window.addEventListener("pageshow", syncRestorableHomeState);
+  window.addEventListener("pagehide", syncRestorableHomeState);
+  window.addEventListener("popstate", syncRestorableHomeState);
+  window.addEventListener("hashchange", syncRestorableHomeState);
+  document.addEventListener("click", () => {
+    setTimeout(syncRestorableHomeState, 0);
+    setTimeout(syncRestorableHomeState, 180);
+  }, true);
   // Sidebar open/close and iOS lock-screen wake can change toolbar
   // geometry/replace its SVG without producing one of the watched text
   // mutations. Refresh ONLY the ink/opacity classes after the UI settles.
