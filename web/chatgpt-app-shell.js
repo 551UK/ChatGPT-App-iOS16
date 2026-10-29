@@ -795,32 +795,6 @@
   // the header. Never rerun topbar row classification for those updates.
   // However, React replacing an actual header button must be detected before
   // paint, so examine the specific mutated subtree rather than the whole page.
-  function mutationChangesHeader(mutations) {
-    const header = "header, [role='banner'], #page-header, " +
-      "#conversation-header-actions, .cg-ios16-topbar-control, " +
-      ".cg-ios16-share-control-stable";
-    const content = "[data-message-author-role], " +
-      "[data-testid^='conversation-turn'], [role='log']";
-    for (const mutation of mutations) {
-      const target = mutation.target.nodeType === 1 ?
-        mutation.target : mutation.target.parentElement;
-      if (!target) continue;
-      if (target.closest(content)) continue;
-      if (target.closest("#browser-sidebar-popover, " +
-        "#stage-popover-sidebar, #stage-slideover-sidebar")) continue;
-      if (target.closest(header)) return true;
-      if (mutation.type === "childList") {
-        for (const node of [...mutation.addedNodes, ...mutation.removedNodes]) {
-          if (node.nodeType !== 1) continue;
-          if (node.matches(header)) return true;
-          if ((target === document.body || target === document.documentElement) &&
-              node.querySelector(header)) return true;
-        }
-      }
-    }
-    return false;
-  }
-
   // In a Gecko sidebar transition the full-width conversation header can be
   // reparented without the observer classifying it as a HEADER mutation.
   // Recover only the previously working white strip; importantly this does
@@ -925,29 +899,6 @@
     return true;
   }
 
-  function applyAppPresentation(updateHeader = true) {
-    installStyle();
-    dismissAppPromotion();
-    if (updateHeader) {
-      // Header sizing must not rerun for streaming text/tool progress.
-      stabilizeTopActionBar();
-    }
-    // Icon ink is a separate concern: Gecko/React can replace or unmount
-    // the left sidebar SVG while the chat is streaming. Detect and mark
-    // newly mounted header SVGs on ordinary updates WITHOUT touching the
-    // control sizing, Share marker, or header row classification.
-    makeTopLeftHeaderIconsBlack();
-    // A restored chat may retain an OLD background class on a collapsed
-    // toolbar. Check whether the CURRENT visible header has a painted
-    // cutoff, rather than testing only whether the class exists anywhere.
-    // Keep this recovery independent of Share and header sizing.
-    if (!hasUsableConversationHeaderBackground())
-      restoreConversationHeaderBackground();
-    hideSuggestion();
-    hideDisclaimers();
-    if (document.body) revealCleanPage();
-  }
-
   // v1.26: HEADER-ONLY event-driven styling.
   // There must never be a document-wide subtree MutationObserver here:
   // React streaming thousands of message nodes is unrelated to header ink.
@@ -1018,8 +969,13 @@
     observedHeaderParent = next?.parentElement || null;
     if (observedHeader) {
       headerObserver.observe(observedHeader, { childList: true, subtree: true });
-      if (observedHeaderParent && observedHeaderParent !== document.body)
-        headerParentObserver.observe(observedHeaderParent, { childList: true });
+      // A parent observer must never accidentally watch a large chat feed.
+      // Only watch parents whose geometry is itself a compact top toolbar.
+      if (observedHeaderParent && observedHeaderParent !== document.body) {
+        const p = observedHeaderParent.getBoundingClientRect();
+        if (p.top < 115 && p.height <= 185 && p.height >= 38)
+          headerParentObserver.observe(observedHeaderParent, { childList: true });
+      }
     }
   }
 
@@ -1049,15 +1005,28 @@
     }, 80);
   }
 
-  // Only the document title is observed for v1.25's last-page/home marker.
-  // Title changes and SPA navigation are infrequent; message text is excluded.
-  let titleObserver = null;
+  // v1.25's last-page/home marker is independent of chat mutations.
+  // Observe only the <title> text and direct replacement of that title node,
+  // never the full document or the unrelated <head> stylesheet mutations.
+  let observedTitle = null;
+  const titleTextObserver = new MutationObserver(syncRestorableHomeState);
+  const titleNodeObserver = new MutationObserver(() => {
+    observePageTitleOnly();
+    syncRestorableHomeState();
+  });
   function observePageTitleOnly() {
-    if (!document.head || titleObserver) return;
-    titleObserver = new MutationObserver(syncRestorableHomeState);
-    titleObserver.observe(document.head, {
-      childList: true, characterData: true, subtree: true
-    });
+    if (!document.head) return;
+    const title = document.head.querySelector("title");
+    if (title !== observedTitle) {
+      titleTextObserver.disconnect();
+      observedTitle = title;
+      if (title) titleTextObserver.observe(title, {
+        childList: true, characterData: true, subtree: true
+      });
+    }
+    // This is a direct-child watcher of head, not a subtree observer.
+    titleNodeObserver.disconnect();
+    titleNodeObserver.observe(document.head, { childList: true });
     syncRestorableHomeState();
   }
 
