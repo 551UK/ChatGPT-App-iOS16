@@ -5,6 +5,8 @@
   // ChatGPT still owns messages, uploads, account state and voice.
   const STYLE_ID = "cg-ios16-app-style";
   const PREPARE_ATTR = "data-cg-ios16-preparing";
+  // Subtle white-strip reduction only; independent of icon and Share size.
+  const HEADER_WHITE_BAR_TRIM_PX = 3;
 
   // document_start runs before ChatGPT paints. Keep the document invisible
   // until the app-only cleanup has been applied, preventing the footer and
@@ -397,7 +399,8 @@
 
     const cutoff = Math.max(
       0,
-      Math.min(bestRect.height, Math.ceil(rowBottom - bestRect.top))
+      Math.min(bestRect.height, Math.ceil(rowBottom - bestRect.top)) -
+        HEADER_WHITE_BAR_TRIM_PX
     );
 
     const backgroundProbe = shareControl || scaleControls[0] || best;
@@ -892,7 +895,10 @@
     for (const control of left) {
       lastButtonBottom = Math.max(lastButtonBottom, control.getBoundingClientRect().bottom);
     }
-    const cutoff = Math.min(r.height, Math.max(0, Math.ceil(lastButtonBottom - r.top)));
+    const cutoff = Math.max(0,
+      Math.min(r.height, Math.ceil(lastButtonBottom - r.top)) -
+      HEADER_WHITE_BAR_TRIM_PX
+    );
     if (cutoff < 24) return false;
     for (const old of document.querySelectorAll(".cg-ios16-solid-topbar")) {
       if (old !== best) {
