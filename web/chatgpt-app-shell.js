@@ -932,17 +932,17 @@
   let pendingHeaderUpdate = false;
   function schedule(updateHeader = true) {
     pendingHeaderUpdate = pendingHeaderUpdate || updateHeader;
-    // Do NOT clear/restart the timer on every mutation. On large restored
-    // chats the page can mutate continuously and a trailing-edge debounce
-    // never executes until the user interacts. A bounded 64ms throttle
-    // guarantees progress while limiting Gecko/DOM scans to <=16 per second.
+    // Do NOT clear/restart the timer on every mutation. During chat restore,
+    // batch non-content updates to avoid repeated document-wide SVG scans.
+    // A bounded 160ms throttle prevents continuous updates from starving the
+    // header without running the full presentation pass 16 times a second.
     if (timer !== null) return;
     timer = setTimeout(() => {
       timer = null;
       const doHeader = pendingHeaderUpdate;
       pendingHeaderUpdate = false;
-      applyAppPresentation(doHeader);
-    }, 64);
+      if (!document.hidden) applyAppPresentation(doHeader);
+    }, 160);
   }
 
   installStyle();
@@ -952,11 +952,24 @@
     applyAppPresentation(true);
   }
 
+  // v1.25: chat streaming and catch-up can generate hundreds of mutations.
+  // They do not need any header or styling pass while only message content
+  // changed. Header replacements still trigger a normal scheduled refresh.
+  function isChatContentMutation(mutation) {
+    const node = mutation.target.nodeType === 1 ?
+      mutation.target : mutation.target.parentElement;
+    return !!node?.closest?.(
+      "[data-message-author-role], [data-testid^='conversation-turn'], [role='log']"
+    );
+  }
   const observer = new MutationObserver((mutations) => {
-    // Ignore streaming message/tool-progress changes when deciding whether to
-    // touch header sizing. Still dismiss app promotions and update footer.
+    if (document.hidden) return;
+    const headerChanged = mutationChangesHeader(mutations);
+    if (!headerChanged && mutations.every(isChatContentMutation)) return;
+    // Preserve synchronous hiding of genuine app promotions, but don't
+    // rescan the entire document for every appended streaming text node.
     dismissAppPromotion();
-    schedule(mutationChangesHeader(mutations));
+    schedule(headerChanged);
   });
   observer.observe(document.documentElement, {
     childList: true,
@@ -970,29 +983,30 @@
   // mutations. Refresh ONLY the ink/opacity classes after the UI settles.
   // Do not call stabilizeTopActionBar here: Share must keep its v1.13 size.
   let inkRecoveryTimers = [];
+  let lastRecoveryStarted = 0;
   function recoverHeaderInkAfterTransition() {
+    if (document.hidden) return;
+    // focus + pageshow + visibilitychange are frequently delivered together
+    // on app resume. Treat them as ONE recovery, not three full SVG scans
+    // and three overlapping sets of five timers.
+    const now = Date.now();
+    if (now - lastRecoveryStarted < 250) return;
+    lastRecoveryStarted = now;
     for (const timerId of inkRecoveryTimers) clearTimeout(timerId);
     inkRecoveryTimers = [];
     function recoverInkAndWhiteStrip() {
+      if (document.hidden) return;
       makeTopLeftHeaderIconsBlack();
-      restoreConversationHeaderBackground();
+      if (!hasUsableConversationHeaderBackground())
+        restoreConversationHeaderBackground();
     }
     recoverInkAndWhiteStrip();
-    requestAnimationFrame(() => {
-      recoverInkAndWhiteStrip();
-      requestAnimationFrame(recoverInkAndWhiteStrip);
-    });
-    // A last-opened chat can hydrate substantially later than pageshow or
-    // focus. Limited follow-ups also cover app resume without any typing.
-    // These are NOT repeating background timers or periodic polling.
-    for (const delay of [120, 360, 800, 1600, 3200]) {
+    requestAnimationFrame(recoverInkAndWhiteStrip);
+    // Retain a late pass for restored chats whose headers mount slowly.
+    // Each pass is conditional and does not cause periodic background work.
+    for (const delay of [160, 600, 1600, 3200]) {
       inkRecoveryTimers.push(setTimeout(() => {
-        if (!hasUsableConversationHeaderBackground()) {
-          recoverInkAndWhiteStrip();
-        } else {
-          // Once the header is healthy, retain the lightweight ink refresh.
-          makeTopLeftHeaderIconsBlack();
-        }
+        if (!document.hidden) recoverInkAndWhiteStrip();
       }, delay));
     }
   }
