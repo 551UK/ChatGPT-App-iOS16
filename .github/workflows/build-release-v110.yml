@@ -1,7 +1,7 @@
 name: Build ChatGPT v1.10 prevent chat-title enlargement
 on:
   push:
-    branches: [top-icons-persist-streaming-v110]
+    branches: [header-only-scaling-v110]
     paths:
       - 'web/chatgpt-app-shell.js'
       - 'scripts/package.sh'
@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Confirm only header color persistence changed from v1.08
+      - name: Confirm v1.09 fixes unchanged and chat-title resizing blocked
         run: |
           set -euo pipefail
           node --check web/chatgpt-app-shell.js
