@@ -1,0 +1,90 @@
+name: Build ChatGPT v1.00 pure black header icons
+on:
+  push:
+    branches: [header-icons-pure-black-v100]
+    paths:
+      - 'web/chatgpt-app-shell.js'
+      - 'scripts/package.sh'
+      - '.github/workflows/build-release-v100.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify v0.98 base preserved and both swapped icons forced black
+        run: |
+          set -euo pipefail
+          node --check web/chatgpt-app-shell.js
+          bash -n scripts/package.sh
+          git diff --exit-code origin/sidebar-title-right-v098 HEAD -- src prefs
+          grep -Fq 'Version: 0.19.0-100' scripts/package.sh
+          grep -Fq 'manifest["version"] = "1.0.100"' scripts/package.sh
+          node <<'JS'
+          const fs = require('fs');
+          const js = fs.readFileSync('web/chatgpt-app-shell.js', 'utf8');
+          if (!js.includes('.cg-ios16-sidebar-title-offset { translate: 10% 0 !important; }')) throw Error('Missing 10% group translation');
+          if (!js.includes('positionSidebarTitleAndChevron();')) throw Error('Missing live application of title movement');
+          if (!js.includes('svgs.length < 1 || svgs.length > 2')) throw Error('Must reject other header buttons');
+          if (js.includes('resizeSidebarText()')) throw Error('Must not import v0.97 sidebar font changes');
+          if (!js.includes('function makeTopLeftHeaderIconsBlack()')) throw Error('Direct SVG selection missing');
+          if (!js.includes('makeTopLeftHeaderIconsBlack();')) throw Error('Direct SVG selection not invoked');
+          if (!js.includes('svg.closest("button, [role=\'button\'], a[href]")')) throw Error('Missing independent button search');
+          if (!js.includes('candidates.sort((a, b) => a.x - b.x')) throw Error('Missing position independent selection');
+          if (!js.includes('if (selected.size === 2) break;')) throw Error('Must select both top-left icons');
+          if (!js.includes('filter: brightness(0) !important')) throw Error('Pure black artwork filter absent');
+          if (!js.includes('.cg-ios16-pure-black-header-control { color: #000000 !important; opacity: 1 !important; }')) throw Error('Faded control opacity fix absent');
+          for (const unchanged of [
+            ".cg-ios16-topbar-control[data-cg-icon-role='sidebar'] { transform: scale(1.40) !important; }",
+            ".cg-ios16-topbar-control[data-cg-icon-role='new'] { transform: scale(1.50) !important; }"
+          ]) if (!js.includes(unchanged)) throw Error('v0.94 icon sizes changed unexpectedly');
+          JS
+      - name: Install packaging dependencies
+        run: |
+          brew install ldid dpkg
+          python3 -m pip install 'lief>=0.17,<0.18' 'Pillow>=10,<13'
+      - name: Set up Theos and iOS SDKs
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+      - name: Build v1.00
+        run: bash scripts/package.sh
+      - name: Verify rootless DEB
+        run: |
+          set -euo pipefail
+          file=dist/com.551uk.chatgptgecko_0.19.0-100_iphoneos-arm64.deb
+          test -s "$file"
+          test "$(dpkg-deb --field "$file" Package)" = "com.551uk.chatgptgecko"
+          test "$(dpkg-deb --field "$file" Version)" = "0.19.0-100"
+          test "$(dpkg-deb --field "$file" Architecture)" = "iphoneos-arm64"
+          dpkg-deb --contents "$file" > /tmp/chatgpt-v100-contents.txt
+          grep -Fq 'ChatGPT.app/' /tmp/chatgpt-v100-contents.txt
+          grep -Fq 'ChatGPTPrefs.bundle/' /tmp/chatgpt-v100-contents.txt
+          shasum -a 256 "$file"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-0.19.0-100-black-header-icons
+          path: dist/com.551uk.chatgptgecko_0.19.0-100_iphoneos-arm64.deb
+          if-no-files-found: error
+      - name: Publish v1.00 test prerelease without changing v0.98 or v0.94
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          file=dist/com.551uk.chatgptgecko_0.19.0-100_iphoneos-arm64.deb
+          if gh release view v1.00 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v1.00 "$file" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create v1.00 "$file" --repo "$GITHUB_REPOSITORY" --target header-icons-pure-black-v100 --prerelease --title "ChatGPT v1.00 - Pure Black Header Icons Test" --notes "Built from unchanged v0.98 source plus position-independent pure black SVG styling for the TWO top-left icons. Handles New Chat and Sidebar swapping positions and faded icon state. Unchanged icon sizes, unchanged title position. v0.98 and v0.94 remain untouched."
+          fi
+          gh release view v1.00 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | [.name,.size,.url] | @tsv'
