@@ -141,6 +141,10 @@
       // its chat titles as if they were toolbar buttons.
       if (element.closest("#browser-sidebar-popover, nav[aria-label='Chat history'], [data-message-author-role], [data-testid^='conversation-turn']")) return false;
       if (!element.querySelector("svg")) return false;
+      // A normal chat-title row may contain an SVG too. Header buttons are
+      // icon-only, apart from a short set of native accessible control labels.
+      const label = normalizedText(element).trim().toLowerCase();
+      if (label && !/^(share|new chat|create new chat|open sidebar|close sidebar|toggle sidebar)$/.test(label)) return false;
       const rect = element.getBoundingClientRect();
       if (rect.width > 110 || rect.height > 85) return false;
       if (rect.width < 20 || rect.height < 20) return false;
