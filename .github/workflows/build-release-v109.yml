@@ -1,0 +1,111 @@
+name: Build ChatGPT v1.09 persistent black header icons
+on:
+  push:
+    branches: [top-icons-persist-streaming-v109]
+    paths:
+      - 'web/chatgpt-app-shell.js'
+      - 'scripts/package.sh'
+      - 'tests/header-icons-streaming-v109.test.cjs'
+      - '.github/workflows/build-release-v109.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Confirm only header color persistence changed from v1.08
+        run: |
+          set -euo pipefail
+          node --check web/chatgpt-app-shell.js
+          bash -n scripts/package.sh
+          git diff --exit-code origin/sidebar-popover-75vw-v108 HEAD -- src prefs
+          grep -Fq 'Version: 0.19.0-109' scripts/package.sh
+          grep -Fq 'manifest["version"] = "1.0.109"' scripts/package.sh
+          node <<'JS'
+          const fs = require('node:fs');
+          const cp = require('node:child_process');
+          const assert = require('node:assert/strict');
+          const original = cp.execFileSync('git', ['show','origin/sidebar-popover-75vw-v108:web/chatgpt-app-shell.js'], {encoding:'utf8'});
+          const actual = fs.readFileSync('web/chatgpt-app-shell.js','utf8');
+          const before = [
+            '    for (const old of document.querySelectorAll("." + svgMarker)) {',
+            '      if (!chosen.has(old)) old.classList.remove(svgMarker);',
+            '    }',
+            '    for (const old of document.querySelectorAll("." + wrapperMarker)) {',
+            '      if (!wrappers.has(old)) old.classList.remove(wrapperMarker);',
+            '    }',
+            ''
+          ].join('\n');
+          const after = [
+            '    // v1.09: keep already-confirmed header glyphs black for their entire DOM',
+            '    // lifetime. During streaming or return-to-chat scrolling, React briefly',
+            '    // shifts/reflows the header. Geometry checks can then yield fewer than',
+            '    // two candidates and v1.08 removed the black classes, turning icons grey.',
+            '    // A detached glyph cannot render, so React removing old nodes is enough',
+            '    // cleanup. New header glyphs are still detected and marked below.',
+            ''
+          ].join('\n');
+          assert.equal(original.split(before).length, 2, 'v1.08 removal block must occur exactly once');
+          assert.equal(actual, original.replace(before,after), 'Unexpected changes to confirmed v1.08 baseline');
+          assert(actual.includes('#browser-sidebar-popover { width: 75vw !important; }'), 'v1.08 sidebar CSS lost');
+          console.log('PASS: unchanged v1.08 with ONLY persistent icon class treatment');
+          JS
+          node tests/header-icons-black.test.cjs
+          node tests/header-icons-streaming-v109.test.cjs
+      - name: Install packaging dependencies
+        run: |
+          brew install ldid dpkg
+          python3 -m pip install 'lief>=0.17,<0.18' 'Pillow>=10,<13'
+      - name: Set up Theos and iOS SDKs
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+      - name: Build v1.09
+        run: bash scripts/package.sh
+      - name: Verify rootless DEB
+        run: |
+          set -euo pipefail
+          file=dist/com.551uk.chatgptgecko_0.19.0-109_iphoneos-arm64.deb
+          test -s "$file"
+          test "$(dpkg-deb --field "$file" Package)" = "com.551uk.chatgptgecko"
+          test "$(dpkg-deb --field "$file" Version)" = "0.19.0-109"
+          test "$(dpkg-deb --field "$file" Architecture)" = "iphoneos-arm64"
+          dpkg-deb --contents "$file" > /tmp/chatgpt-v109-contents.txt
+          grep -Fq 'ChatGPT.app/' /tmp/chatgpt-v109-contents.txt
+          grep -Fq 'ChatGPTPrefs.bundle/' /tmp/chatgpt-v109-contents.txt
+          shasum -a 256 "$file"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-0.19.0-109-header-icons-persistent
+          path: dist/com.551uk.chatgptgecko_0.19.0-109_iphoneos-arm64.deb
+          if-no-files-found: error
+      - name: Release v1.09 test file without touching stable releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          file=dist/com.551uk.chatgptgecko_0.19.0-109_iphoneos-arm64.deb
+          if ! gh release view v1.09 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create v1.09 --repo "$GITHUB_REPOSITORY" --target top-icons-persist-streaming-v109 --prerelease --title "ChatGPT v1.09 - Persistently Black Header Icons" --notes "Based directly on user-confirmed working v1.08 sidebar width. Preserves black treatment for previously identified SVG icons and small ancestor wrappers across transient header reflows while streaming or scrolling; newly mounted icons are still identified. No changes to text sizes, icon geometry, navigation or 75vw sidebar."
+          fi
+          success=0
+          for attempt in 1 2 3 4; do
+            if gh release upload v1.09 "$file" --repo "$GITHUB_REPOSITORY" --clobber; then
+              success=1
+              break
+            fi
+            echo "Release upload attempt $attempt failed. Retrying."
+            sleep 5
+          done
+          test "$success" = 1
+          gh release view v1.09 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | [.name,.size,.url] | @tsv'
