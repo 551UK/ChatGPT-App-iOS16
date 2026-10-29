@@ -80,7 +80,7 @@ jobs:
           function run(hostname,pathname,title,hasHead=true) {
             const context={document:{head:hasHead?{}:null,title},
                            location:{hostname,pathname}};
-            vm.runInNewContext(fn+'\nsyncRestorableHomeState();',context);
+            vm.runInNewContext("const CG_HOME_ROUTE_TITLE_MARKER = 'ChatGPT - New Chat (iOS16)';\n"+fn+'\nsyncRestorableHomeState();',context);
             return context.document.title;
           }
           const MARK='ChatGPT - New Chat (iOS16)';
