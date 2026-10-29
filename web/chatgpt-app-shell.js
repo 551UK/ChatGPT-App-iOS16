@@ -807,6 +807,73 @@
     attributes: true,
     attributeFilter: ["aria-label", "title", "data-testid", "d", "href", "xlink:href", "viewBox", "x", "y", "x1", "x2", "y1", "y2", "width", "height", "points", "cx", "cy", "r"]
   });
+  // Sidebar open/close and iOS lock-screen wake can change toolbar
+  // geometry/replace its SVG without producing one of the watched text
+  // mutations. Refresh ONLY the ink/opacity classes after the UI settles.
+  // Do not call stabilizeTopActionBar here: Share must keep its v1.13 size.
+  let inkRecoveryTimers = [];
+  function recoverHeaderInkAfterTransition() {
+    for (const timerId of inkRecoveryTimers) clearTimeout(timerId);
+    inkRecoveryTimers = [];
+    makeTopLeftHeaderIconsBlack();
+    requestAnimationFrame(() => {
+      makeTopLeftHeaderIconsBlack();
+      requestAnimationFrame(makeTopLeftHeaderIconsBlack);
+    });
+    for (const delay of [120, 360, 800]) {
+      inkRecoveryTimers.push(setTimeout(makeTopLeftHeaderIconsBlack, delay));
+    }
+  }
+
+  function sidebarInteraction(event) {
+    const target = event.target?.nodeType === 1 ?
+      event.target : event.target?.parentElement;
+    if (!target || !target.closest) return false;
+    if (target.closest(
+      "#browser-sidebar-popover, #stage-popover-sidebar, " +
+      "#stage-slideover-sidebar, #sidebar-container"
+    )) return true;
+    const control = target.closest("button, a, [role='button']");
+    if (control) {
+      const bounds = control.getBoundingClientRect();
+      const identity = [
+        control.getAttribute("aria-label"),
+        control.getAttribute("title"),
+        control.getAttribute("data-testid")
+      ].filter(Boolean).join(" ").toLowerCase();
+      if (/sidebar|side[ _-]?panel|toggle[ _-]?navigation|new[ _-]?chat/.test(identity))
+        return true;
+      // The two left header glyphs can swap order and be unlabelled.
+      if (bounds.top >= -10 && bounds.bottom <= 165 &&
+          bounds.left >= -12 && bounds.right <= innerWidth * 0.43) return true;
+    }
+    // Tapping the backdrop closes a sidebar without touching its buttons.
+    const sidebar = document.getElementById("browser-sidebar-popover");
+    return !!sidebar && sidebar.getBoundingClientRect().width > 50;
+  }
+
+  document.addEventListener("click", event => {
+    if (sidebarInteraction(event)) recoverHeaderInkAfterTransition();
+  }, true);
+  // Some sidebar views dismiss by a gesture rather than a normal click.
+  document.addEventListener("transitionend", event => {
+    const target = event.target;
+    if (target?.nodeType === 1 && target.closest?.(
+      "#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar"
+    )) recoverHeaderInkAfterTransition();
+  }, true);
+  document.addEventListener("keyup", event => {
+    if (event.key === "Escape") recoverHeaderInkAfterTransition();
+  }, true);
+
+  // When returning from the lock screen, a visibility/focus event can occur
+  // before Gecko finishes rebuilding controls. Delayed passes cover that.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) recoverHeaderInkAfterTransition();
+  });
+  window.addEventListener("pageshow", recoverHeaderInkAfterTransition);
+  window.addEventListener("focus", recoverHeaderInkAfterTransition);
+
   window.addEventListener("resize", () => schedule(true), { passive: true });
   window.addEventListener("popstate", () => schedule(true));
 })();
