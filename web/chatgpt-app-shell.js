@@ -761,10 +761,15 @@
     installStyle();
     dismissAppPromotion();
     if (updateHeader) {
+      // Header sizing must not rerun for streaming text/tool progress.
       stabilizeTopActionBar();
       positionSidebarTitleAndChevron();
-      makeTopLeftHeaderIconsBlack();
     }
+    // Icon ink is a separate concern: Gecko/React can replace or unmount
+    // the left sidebar SVG while the chat is streaming. Detect and mark
+    // newly mounted header SVGs on ordinary updates WITHOUT touching the
+    // control sizing, Share marker, or header row classification.
+    makeTopLeftHeaderIconsBlack();
     hideSuggestion();
     hideDisclaimers();
     if (document.body) revealCleanPage();
