@@ -43,6 +43,20 @@
     // The Sidebar glyph can be half-opacity on an intermediate span/button:
     // override those icon-sized wrappers as well (not the overall header).
     ".cg-ios16-direct-black-wrapper { opacity: 1 !important; filter: none !important; -webkit-filter: none !important; }",
+    // v1.19: inherited ink for the confirmed MAIN header controls.
+    // ChatGPT can replace the SVG on scroll/sidebar transitions without
+    // replacing its button. Styling the button AND descendant SVG means no
+    // mutation callback or chat message is needed to restore black ink.
+    // This marker is only applied to the two main top-left header buttons;
+    // the smaller close toggle inside the sidebar does not receive it.
+    "html body .cg-ios16-left-header-size-stable { color: #000000 !important; opacity: 1 !important; }",
+    "html body .cg-ios16-left-header-size-stable :is(span, svg) { color: #000000 !important; opacity: 1 !important; }",
+    "html body .cg-ios16-left-header-size-stable svg { filter: brightness(0) !important; -webkit-filter: brightness(0) !important; }",
+    "html body .cg-ios16-left-header-size-stable svg * { opacity: 1 !important; }",
+    // If the header sizing row has already identified a control before the
+    // independent v1.16 pair detector catches up, protect it immediately too.
+    "html body .cg-ios16-topbar-control[data-cg-icon-role='sidebar'] { color: #000000 !important; opacity: 1 !important; }",
+    "html body .cg-ios16-topbar-control[data-cg-icon-role='sidebar'] svg { color: #000000 !important; opacity: 1 !important; filter: brightness(0) !important; -webkit-filter: brightness(0) !important; }",
     // This independent CSS translate does not affect sizing, layout or icon transforms.
     ".cg-ios16-sidebar-title-offset { translate: 10% 0 !important; }",
     // v1.08: Firefox-confirmed exact sidebar popover on mobile (75vw = 322.5px at 430px).
@@ -782,6 +796,9 @@
         wrappers.add(el);
       }
     }
+    // Confirmed header buttons retain ink through the persistent selector
+    // above even if a later scroll puts another SVG before them in candidates.
+    // Never unmark them on partial/ambiguous geometry.
     // v1.09: keep already-confirmed header glyphs black for their entire DOM
     // lifetime. During streaming or return-to-chat scrolling, React briefly
     // shifts/reflows the header. Geometry checks can then yield fewer than
