@@ -1,0 +1,124 @@
+name: Build ChatGPT v1.17 - recover white header bar on chat transitions
+
+on:
+  push:
+    branches: [header-background-recovery-v117]
+    paths:
+      - 'web/chatgpt-app-shell.js'
+      - 'scripts/package.sh'
+      - '.github/workflows/build-white-header-v117.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: chatgpt-white-header-v117
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install packaging dependencies
+        run: |
+          brew install ldid dpkg
+          python3 -m pip install 'lief>=0.17,<0.18' 'Pillow>=10,<13'
+      - name: Set up Theos and iOS SDKs
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+      - name: Verify white header-only recovery based on v1.16
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin header-icon-size-recovery-v116 --depth=1
+          git diff --quiet origin/header-icon-size-recovery-v116 HEAD -- src prefs scripts/rebrand.py scripts/inject.py scripts/icon.py
+          ! git diff --quiet origin/header-icon-size-recovery-v116 HEAD -- web/chatgpt-app-shell.js
+          node --check web/chatgpt-app-shell.js
+          bash -n scripts/package.sh
+          python3 - <<'PY_CHECK'
+          from pathlib import Path
+          js = Path("web/chatgpt-app-shell.js").read_text()
+          code = js.split("function restoreMainHeaderLeftIconSizes(chosenSvgs) {", 1)[1].split("\n  // v1.01", 1)[0]
+          assert "stabilizeTopActionBar" not in code
+          assert "keepHeaderShareEnlarged" not in code
+          assert "button.closest(panelSelector)" in code
+          assert "pair.length !== 2" in code
+          assert 'data-cg-left-header-icon' in code
+          assert 'restoreMainHeaderLeftIconSizes(chosen);' in js
+          assert "html body .cg-ios16-left-header-size-stable" in js
+          assert "makeTopLeftHeaderIconsBlack();" in js
+          assert "recoverHeaderInkAfterTransition()" in js
+          assert "schedule(mutationChangesHeader(mutations))" in js
+          assert '#browser-sidebar-popover { width: 75vw' in js
+          assert 'html body .cg-ios16-share-control-stable { transform: scale(1.30)' in js
+          print("PASS: restore main header icon sizes without touching the sidebar dismiss control or Share")
+          PY_CHECK
+          grep -Fq 'manifest["version"] = "1.0.117"' scripts/package.sh
+          grep -Fq 'Version: 0.19.0-117' scripts/package.sh
+      - name: Package ChatGPT v1.17
+        run: bash scripts/package.sh
+      - name: Inspect rootless DEB and embedded styling script
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=dist/com.551uk.chatgptgecko_0.19.0-117_iphoneos-arm64.deb
+          test -s "$f"
+          test "$(dpkg-deb --field "$f" Package)" = "com.551uk.chatgptgecko"
+          test "$(dpkg-deb --field "$f" Version)" = "0.19.0-117"
+          test "$(dpkg-deb --field "$f" Architecture)" = "iphoneos-arm64"
+          python3 - <<'PY_CHECK'
+          import json, plistlib
+          from pathlib import Path
+          app=Path("build/work/unpacked/Payload/ChatGPT.app")
+          assert plistlib.loads((app/"Info.plist").read_bytes())["CFBundleIdentifier"]=="com.551uk.chatgptios16"
+          helper=app/"PlugIns/Reynard Helper.appex/Info.plist"
+          assert plistlib.loads(helper.read_bytes())["CFBundleIdentifier"]=="com.551uk.chatgptios16.Helper"
+          manifest=next(app.rglob("extensions/readerview/manifest.json"))
+          m=json.loads(manifest.read_text())
+          assert m["version"]=="1.0.117"
+          assert any("chatgpt-app-shell.js" in e.get("js",[]) for e in m.get("content_scripts",[]))
+          code=(manifest.parent/"chatgpt-app-shell.js").read_text()
+          assert "restoreConversationHeaderBackground()" in js
+          assert "function restoreConversationHeaderBackground() {" in js
+          repair = js.split("function restoreConversationHeaderBackground() {",1)[1].split("\n  function applyAppPresentation(",1)[0]
+          assert "stabilizeTopActionBar()" not in repair
+          assert "cg-ios16-solid-topbar" in repair
+          assert 'window.location.pathname === "/"' in repair
+          assert "if (element.closest(panelSelector)) return false" in repair
+          recovery = js.split("function recoverHeaderInkAfterTransition() {",1)[1].split("\n  function sidebarInteraction(",1)[0]
+          assert "restoreConversationHeaderBackground();" in recovery
+          assert "recoverInkAndWhiteStrip();" in recovery
+          assert 'window.addEventListener("popstate"' in js
+                    assert "restoreMainHeaderLeftIconSizes(chosen);" in code
+          assert "cg-ios16-left-header-size-stable" in code
+          assert "restoreConversationHeaderBackground()" in code
+          assert "recoverInkAndWhiteStrip()" in code
+          print("PASS: App bundle, Gecko helper and left icon sizing script included")
+          PY_CHECK
+          shasum -a 256 "$f"
+      - name: Upload verified DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-0.19.0-117-White-Header-Recovery
+          path: dist/com.551uk.chatgptgecko_0.19.0-117_iphoneos-arm64.deb
+      - name: Publish optional testing release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create chatgpt-white-header-v117 \
+            dist/com.551uk.chatgptgecko_0.19.0-117_iphoneos-arm64.deb \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "ChatGPT v1.17 — Restore white conversation header after sidebar and navigation" \
+            --notes "Experimental build derived from v1.16. The original white conversation header sometimes disappears after reopening a chat or closing the sidebar and returns when sending another message. v1.17 recovers ONLY the white background of the main full-width chat header after navigation/sidebar/wake, independently of Share sizing and left icon size and black colour. Homepage remains native, sidebar inner controls excluded. v1.15 and v1.16 preserved. Confirm on iPhone before promoting."
