@@ -1,0 +1,98 @@
+name: Finalize ChatGPT v1.26 stable release
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/finalize-v126-release.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+
+concurrency:
+  group: chatgpt-v126-canonical-release
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify main matches preserved v1.26 app and test source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin best-known-v1.26
+          git diff --quiet FETCH_HEAD HEAD -- src web prefs scripts tests
+          grep -Fq 'Version: 0.19.0-126' scripts/package.sh
+          grep -Fq 'manifest["version"] = "1.0.126"' scripts/package.sh
+          grep -Fq 'startHeaderOnlyMonitoring' web/chatgpt-app-shell.js
+          node --check web/chatgpt-app-shell.js
+          node --test tests/header-only-v126.test.cjs
+          grep -Fxq '# Features' README.md
+          test "$(grep -c '^# ' README.md)" -eq 1
+
+      - name: Publish canonical v1.26 DEB from verified prior build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/v126"
+          DEB="$RUNNER_TEMP/v126/com.551uk.chatgptgecko_0.19.0-126_iphoneos-arm64.deb"
+          gh release download chatgpt-event-header-v126 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'com.551uk.chatgptgecko_0.19.0-126_iphoneos-arm64.deb' \
+            --dir "$RUNNER_TEMP/v126"
+          test -s "$DEB"
+          test "$(stat -c%s "$DEB")" = "73466296"
+          test "$(dpkg-deb --field "$DEB" Package)" = "com.551uk.chatgptgecko"
+          test "$(dpkg-deb --field "$DEB" Version)" = "0.19.0-126"
+          test "$(dpkg-deb --field "$DEB" Architecture)" = "iphoneos-arm64"
+          if gh release view v1.26 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release view v1.26 --repo "$GITHUB_REPOSITORY" --json assets \
+              --jq '.assets[].name' | grep -Fxq "$(basename "$DEB")"
+          else
+            gh release create v1.26 "$DEB" \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "ChatGPT v1.26" --notes-file README.md --latest
+          fi
+          gh release edit v1.26 --repo "$GITHUB_REPOSITORY" --latest
+          gh release view v1.26 --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name' | grep -Fxq "$(basename "$DEB")"
+          echo "Verified canonical stable v1.26 app DEB"
+
+      - name: Remove only superseded ChatGPT app releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for tag in v1.25 v1.25-perf-test chatgpt-event-header-v126; do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Removing superseded app release: $tag"
+              gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+            fi
+          done
+          echo "Retaining native crash diagnostic releases as separate packages"
+          gh release view v1.26 --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name' | grep -Fxq 'com.551uk.chatgptgecko_0.19.0-126_iphoneos-arm64.deb'
+
+      - name: Verify latest release and known-good source backups
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v1.26 --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isPrerelease,assets \
+            --jq '{tagName,isPrerelease,assets:[.assets[].name]}'
+          test "$(gh release view v1.26 --repo "$GITHUB_REPOSITORY" \
+            --json isPrerelease --jq '.isPrerelease')" = "false"
+          for branch in main best-known-v1.26 best-known-v1.25 best-known-v1.24; do
+            gh api "repos/$GITHUB_REPOSITORY/branches/$branch" --jq .name
+          done
+          echo "v1.26 stable release finalized."
