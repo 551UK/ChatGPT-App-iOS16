@@ -135,7 +135,14 @@
     ));
 
     const visibleTopControls = allControls.filter((element) => {
+      // v1.10: Never classify chat-history entries, message controls or
+      // other iconless text links as top-header icons. When a sidebar list
+      // scrolls past the first 140px, v1.08/v1.09 could mistakenly scale
+      // its chat titles as if they were toolbar buttons.
+      if (element.closest("#browser-sidebar-popover, nav[aria-label='Chat history'], [data-message-author-role], [data-testid^='conversation-turn']")) return false;
+      if (!element.querySelector("svg")) return false;
       const rect = element.getBoundingClientRect();
+      if (rect.width > 110 || rect.height > 85) return false;
       if (rect.width < 20 || rect.height < 20) return false;
       if (rect.bottom <= 0 || rect.top >= Math.min(140, innerHeight * 0.20)) return false;
       if (rect.right <= 0 || rect.left >= innerWidth) return false;
@@ -636,7 +643,7 @@
           art.top < -10 || art.top > 112 ||
           art.bottom > 155 ||
           art.left < -10 || art.left > innerWidth * 0.43) continue;
-      if (svg.closest(".cg-ios16-sidebar-title-offset")) continue;
+      if (svg.closest(".cg-ios16-sidebar-title-offset, #browser-sidebar-popover, nav[aria-label='Chat history'], [data-message-author-role], [data-testid^='conversation-turn']")) continue;
       const computed = getComputedStyle(svg);
       if (computed.display === "none" || computed.visibility === "hidden") continue;
       const control = svg.closest("button, [role='button'], a[href]");
