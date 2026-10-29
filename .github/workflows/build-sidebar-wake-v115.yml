@@ -1,0 +1,124 @@
+name: Build ChatGPT v1.15 - restore black sidebar after closing and waking
+
+on:
+  push:
+    branches: [sidebar-wake-refresh-v115]
+    paths:
+      - 'web/chatgpt-app-shell.js'
+      - 'scripts/package.sh'
+      - '.github/workflows/build-sidebar-wake-v115.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: chatgpt-sidebar-wake-v115
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install packaging dependencies
+        run: |
+          brew install ldid dpkg
+          python3 -m pip install 'lief>=0.17,<0.18' 'Pillow>=10,<13'
+      - name: Set up Theos and iOS SDKs
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+      - name: Validate isolated sidebar and wake refresh from v1.14
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin sidebar-black-streaming-v115 --depth=1
+          ! git diff --quiet origin/sidebar-black-streaming-v115 HEAD -- web/chatgpt-app-shell.js
+          git diff --quiet origin/sidebar-black-streaming-v115 HEAD -- src prefs scripts/rebrand.py scripts/inject.py scripts/icon.py
+          node --check web/chatgpt-app-shell.js
+          bash -n scripts/package.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path("web/chatgpt-app-shell.js").read_text()
+          # Prevent repeated full header sizing during message streaming.
+          block=s.split("function applyAppPresentation(updateHeader = true) {",1)[1].split("\n  let timer =",1)[0]
+          in_if=block.split("if (updateHeader) {",1)[1].split("\n    }",1)[0]
+          assert "stabilizeTopActionBar();" in in_if
+          assert "makeTopLeftHeaderIconsBlack();" not in in_if
+          assert "makeTopLeftHeaderIconsBlack();" in block.split("\n    }",1)[1]
+          assert "schedule(mutationChangesHeader(mutations))" in s
+          assert "cg-ios16-share-control-stable" in s
+          print("PASS: independent SVG ink refresh, stable Share/header sizing")
+          PY
+          # Verify a dedicated event-driven recovery path that never recalculates Share size.
+          python3 - <<'PY_CHECK'
+          from pathlib import Path
+          code = Path('web/chatgpt-app-shell.js').read_text()
+          assert code.count("function recoverHeaderInkAfterTransition()") == 1
+          fn = code.split("function recoverHeaderInkAfterTransition() {", 1)[1].split("\n  function sidebarInteraction(", 1)[0]
+          assert "makeTopLeftHeaderIconsBlack();" in fn
+          assert "stabilizeTopActionBar" not in fn
+          for event in ['"click"', '"transitionend"', '"visibilitychange"', '"pageshow"', '"focus"']:
+              assert event in code
+          assert "schedule(mutationChangesHeader(mutations))" in code
+          assert "keepHeaderShareEnlarged(allControls)" in code
+          print("PASS: ink-only recovery after sidebar and wake, Share sizing unchanged")
+          PY_CHECK
+          grep -Fq 'function keepHeaderShareEnlarged(allControls)' web/chatgpt-app-shell.js
+          grep -Fq 'html body .cg-ios16-share-control-stable { transform: scale(1.30)' web/chatgpt-app-shell.js
+          grep -Fq '!old.classList.contains("cg-ios16-share-control-stable")' web/chatgpt-app-shell.js
+          grep -Fq '#browser-sidebar-popover { width: 75vw' web/chatgpt-app-shell.js
+          grep -Fq 'nav[aria-label=' web/chatgpt-app-shell.js
+          grep -Fq 'function mutationChangesHeader(mutations)' web/chatgpt-app-shell.js
+          grep -Fq 'schedule(mutationChangesHeader(mutations))' web/chatgpt-app-shell.js
+          grep -Fq 'if (element.classList.contains("cg-ios16-share-control-stable")) continue;' web/chatgpt-app-shell.js
+          grep -Fq 'manifest["version"] = "1.0.115"' scripts/package.sh
+          grep -Fq 'Version: 0.19.0-115' scripts/package.sh
+      - name: Build ChatGPT v1.15 based on preserved v1.14
+        run: bash scripts/package.sh
+      - name: Inspect app bundle and DEB
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=dist/com.551uk.chatgptgecko_0.19.0-115_iphoneos-arm64.deb
+          test -s "$f"
+          test "$(dpkg-deb --field "$f" Package)" = "com.551uk.chatgptgecko"
+          test "$(dpkg-deb --field "$f" Version)" = "0.19.0-115"
+          test "$(dpkg-deb --field "$f" Architecture)" = "iphoneos-arm64"
+          python3 - <<'PY'
+          import json, plistlib
+          from pathlib import Path
+          app=Path("build/work/unpacked/Payload/ChatGPT.app")
+          assert plistlib.loads((app/"Info.plist").read_bytes())["CFBundleIdentifier"]=="com.551uk.chatgptios16"
+          helper=app/"PlugIns/Reynard Helper.appex/Info.plist"
+          assert plistlib.loads(helper.read_bytes())["CFBundleIdentifier"]=="com.551uk.chatgptios16.Helper"
+          manifest=next(app.rglob("extensions/readerview/manifest.json"))
+          m=json.loads(manifest.read_text())
+          assert m["version"]=="1.0.115"
+          assert any("chatgpt-app-shell.js" in e.get("js",[]) for e in m.get("content_scripts",[]))
+          content=(manifest.parent/"chatgpt-app-shell.js").read_text()
+          assert "keepHeaderShareEnlarged(allControls)" in content
+          assert "cg-ios16-share-control-stable" in content
+          print("PASS: Gecko helper and custom UI script included, Share always-large fix present")
+          PY
+          sha256sum "$f"
+      - name: Upload signed-rootless build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-0.19.0-115-Sidebar-Wake-Black
+          path: dist/com.551uk.chatgptgecko_0.19.0-115_iphoneos-arm64.deb
+      - name: Publish direct release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create chatgpt-sidebar-wake-v115 dist/com.551uk.chatgptgecko_0.19.0-115_iphoneos-arm64.deb --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "ChatGPT v1.15 — Black sidebar icon after sidebar toggle and screen wake" --notes "Experimental v1.15 built on preserved v1.14. After sidebar click, transition, app wake or return from lock screen, the app refreshes ONLY the top-left SVG black ink/opacity styling with a small bounded set of follow-up passes. No Share/header resizing on these events. Retains v1.13 Share stability, 75% sidebar, chat titles, native code, Gecko helper and Settings. Keep v1.12 as known-good rollback."
