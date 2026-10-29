@@ -219,7 +219,7 @@ static void CGSetPreference(NSString *key, id value) {
     if (!self) return nil;
 
     BOOL refresh = [[specifier propertyForKey:@"tipKind"] isEqualToString:@"refresh"];
-    NSString *symbol = refresh ? @"arrow.left.circle" : @"arrow.backward";
+    NSString *symbol = refresh ? @"arrow.left.circle" : @"arrow.right";
     UIColor *accent = refresh ? UIColor.systemBlueColor : UIColor.systemTealColor;
 
     self.selectionStyle = UITableViewCellSelectionStyleNone;
