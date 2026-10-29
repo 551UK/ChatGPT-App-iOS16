@@ -633,7 +633,10 @@
 
       const button = svg.closest("button, [role='button'], a[href]");
       if (!button || button.querySelectorAll("svg").length !== 1) continue;
-      if (normalizedText(button)) continue;
+      // Icon-only buttons sometimes contain visually hidden accessibility
+      // labels ("New chat", "Open sidebar"). Do NOT reject those text nodes.
+      // Exclude only the separate ChatGPT title/chevron menu itself.
+      if (/^ChatGPT$/i.test(normalizedText(button))) continue;
       if (button.closest(".cg-ios16-sidebar-title-offset")) continue;
       const rect = button.getBoundingClientRect();
       if (rect.top < -12 || rect.top > 110 ||
