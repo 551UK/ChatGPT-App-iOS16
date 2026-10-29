@@ -40,9 +40,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin fix-share-button-stable-v113 --depth=1
-          ! git diff --quiet origin/fix-share-button-stable-v113 HEAD -- web/chatgpt-app-shell.js
-          git diff --quiet origin/fix-share-button-stable-v113 HEAD -- src prefs scripts/rebrand.py scripts/inject.py scripts/icon.py
+          git fetch origin fix-share-button-stable-v112 --depth=1
+          ! git diff --quiet origin/fix-share-button-stable-v112 HEAD -- web/chatgpt-app-shell.js
+          git diff --quiet origin/fix-share-button-stable-v112 HEAD -- src prefs scripts/rebrand.py scripts/inject.py scripts/icon.py
           node --check web/chatgpt-app-shell.js
           bash -n scripts/package.sh
           grep -Fq 'function keepHeaderShareEnlarged(allControls)' web/chatgpt-app-shell.js
