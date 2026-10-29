@@ -795,32 +795,6 @@
   // the header. Never rerun topbar row classification for those updates.
   // However, React replacing an actual header button must be detected before
   // paint, so examine the specific mutated subtree rather than the whole page.
-  function mutationChangesHeader(mutations) {
-    const header = "header, [role='banner'], #page-header, " +
-      "#conversation-header-actions, .cg-ios16-topbar-control, " +
-      ".cg-ios16-share-control-stable";
-    const content = "[data-message-author-role], " +
-      "[data-testid^='conversation-turn'], [role='log']";
-    for (const mutation of mutations) {
-      const target = mutation.target.nodeType === 1 ?
-        mutation.target : mutation.target.parentElement;
-      if (!target) continue;
-      if (target.closest(content)) continue;
-      if (target.closest("#browser-sidebar-popover, " +
-        "#stage-popover-sidebar, #stage-slideover-sidebar")) continue;
-      if (target.closest(header)) return true;
-      if (mutation.type === "childList") {
-        for (const node of [...mutation.addedNodes, ...mutation.removedNodes]) {
-          if (node.nodeType !== 1) continue;
-          if (node.matches(header)) return true;
-          if ((target === document.body || target === document.documentElement) &&
-              node.querySelector(header)) return true;
-        }
-      }
-    }
-    return false;
-  }
-
   // In a Gecko sidebar transition the full-width conversation header can be
   // reparented without the observer classifying it as a HEADER mutation.
   // Recover only the previously working white strip; importantly this does
@@ -925,67 +899,175 @@
     return true;
   }
 
-  function applyAppPresentation(updateHeader = true) {
+  // v1.26: HEADER-ONLY event-driven styling.
+  // There must never be a document-wide subtree MutationObserver here:
+  // React streaming thousands of message nodes is unrelated to header ink.
+  // Once we tag a header button, CSS handles SVG/icon repaint automatically.
+  let chromeTimer = null;
+  let observedHeader = null;
+  let observedHeaderParent = null;
+  let pendingChromeRefresh = false;
+
+  function findLiveHeaderHost() {
+    const controls = document.querySelectorAll(
+      ".cg-ios16-left-header-size-stable, .cg-ios16-topbar-control, " +
+      ".cg-ios16-share-control-stable"
+    );
+    const choices = [];
+    for (const button of controls) {
+      if (!button.isConnected || button.closest(
+        "#browser-sidebar-popover, #stage-popover-sidebar, " +
+        "#stage-slideover-sidebar, #sidebar-container, " +
+        "[data-message-author-role], [data-testid^='conversation-turn']"
+      )) continue;
+      for (let node = button.parentElement, depth = 0;
+           node && depth < 8 && node !== document.body;
+           node = node.parentElement, depth++) {
+        const r = node.getBoundingClientRect();
+        if (r.top < -28 || r.top > 105 || r.height < 38 || r.height > 170 ||
+            r.width < innerWidth * 0.76 ||
+            r.width > innerWidth * 1.12) continue;
+        // Never observe a whole message feed or composer parent as a header.
+        if (node.querySelector(
+          "[data-message-author-role], [data-testid^='conversation-turn'], " +
+          "textarea, [contenteditable='true']"
+        )) continue;
+        choices.push({ node, depth, height: r.height });
+        break;
+      }
+    }
+    choices.sort((a, b) => a.depth - b.depth || a.height - b.height);
+    if (choices.length) return choices[0].node;
+    // When a brand-new page has no marked buttons, the top-level semantic
+    // header is a safe, strictly bounded observer target.
+    for (const node of document.querySelectorAll(
+      "#page-header, #conversation-header-actions, header, [role='banner']"
+    )) {
+      const r = node.getBoundingClientRect();
+      if (r.top < -28 || r.top > 105 || r.height < 38 || r.height > 170 ||
+          r.width < innerWidth * 0.76) continue;
+      if (node.querySelector("[data-message-author-role], textarea")) continue;
+      return node;
+    }
+    return null;
+  }
+
+  const headerObserver = new MutationObserver(() => {
+    // Only direct header subtree changes are observed. No message stream work.
+    if (!document.hidden) scheduleChromeRefresh();
+  });
+  const headerParentObserver = new MutationObserver(() => {
+    // If React replaces the entire header, its immediate parent reports it.
+    if (!document.hidden) scheduleChromeRefresh();
+  });
+  function observeHeaderOnly() {
+    const next = findLiveHeaderHost();
+    if (next === observedHeader && next?.isConnected) return;
+    headerObserver.disconnect();
+    headerParentObserver.disconnect();
+    observedHeader = next;
+    observedHeaderParent = next?.parentElement || null;
+    if (observedHeader) {
+      headerObserver.observe(observedHeader, { childList: true, subtree: true });
+      // A parent observer must never accidentally watch a large chat feed.
+      // Only watch parents whose geometry is itself a compact top toolbar.
+      if (observedHeaderParent && observedHeaderParent !== document.body) {
+        const p = observedHeaderParent.getBoundingClientRect();
+        if (p.top < 115 && p.height <= 185 && p.height >= 38)
+          headerParentObserver.observe(observedHeaderParent, { childList: true });
+      }
+    }
+  }
+
+  function refreshChrome() {
+    if (document.hidden) return;
     installStyle();
     dismissAppPromotion();
-    if (updateHeader) {
-      // Header sizing must not rerun for streaming text/tool progress.
-      stabilizeTopActionBar();
-    }
-    // Icon ink is a separate concern: Gecko/React can replace or unmount
-    // the left sidebar SVG while the chat is streaming. Detect and mark
-    // newly mounted header SVGs on ordinary updates WITHOUT touching the
-    // control sizing, Share marker, or header row classification.
+    stabilizeTopActionBar();
     makeTopLeftHeaderIconsBlack();
-    // A restored chat may retain an OLD background class on a collapsed
-    // toolbar. Check whether the CURRENT visible header has a painted
-    // cutoff, rather than testing only whether the class exists anywhere.
-    // Keep this recovery independent of Share and header sizing.
     if (!hasUsableConversationHeaderBackground())
       restoreConversationHeaderBackground();
     hideSuggestion();
     hideDisclaimers();
     if (document.body) revealCleanPage();
+    observeHeaderOnly();
   }
 
-  let timer = null;
-  let pendingHeaderUpdate = false;
-  function schedule(updateHeader = true) {
-    pendingHeaderUpdate = pendingHeaderUpdate || updateHeader;
-    // Do NOT clear/restart the timer on every mutation. On large restored
-    // chats the page can mutate continuously and a trailing-edge debounce
-    // never executes until the user interacts. A bounded 64ms throttle
-    // guarantees progress while limiting Gecko/DOM scans to <=16 per second.
-    if (timer !== null) return;
-    timer = setTimeout(() => {
-      timer = null;
-      const doHeader = pendingHeaderUpdate;
-      pendingHeaderUpdate = false;
-      applyAppPresentation(doHeader);
-    }, 64);
+  function scheduleChromeRefresh() {
+    if (document.hidden) return;
+    pendingChromeRefresh = true;
+    if (chromeTimer !== null) return;
+    chromeTimer = setTimeout(() => {
+      chromeTimer = null;
+      if (!pendingChromeRefresh || document.hidden) return;
+      pendingChromeRefresh = false;
+      refreshChrome();
+    }, 80);
   }
 
-  installStyle();
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => applyAppPresentation(true), { once: true });
-  } else {
-    applyAppPresentation(true);
-  }
-
-  const observer = new MutationObserver((mutations) => {
-    // Ignore streaming message/tool-progress changes when deciding whether to
-    // touch header sizing. Still dismiss app promotions and update footer.
-    dismissAppPromotion();
+  // v1.25's last-page/home marker is independent of chat mutations.
+  // Observe only the <title> text and direct replacement of that title node,
+  // never the full document or the unrelated <head> stylesheet mutations.
+  let observedTitle = null;
+  const titleTextObserver = new MutationObserver(syncRestorableHomeState);
+  const titleNodeObserver = new MutationObserver(() => {
+    observePageTitleOnly();
     syncRestorableHomeState();
-    schedule(mutationChangesHeader(mutations));
   });
-  observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-    characterData: true,
-    attributes: true,
-    attributeFilter: ["aria-label", "title", "data-testid", "d", "href", "xlink:href", "viewBox", "x", "y", "x1", "x2", "y1", "y2", "width", "height", "points", "cx", "cy", "r"]
+  function observePageTitleOnly() {
+    if (!document.head) return;
+    const title = document.head.querySelector("title");
+    if (title !== observedTitle) {
+      titleTextObserver.disconnect();
+      observedTitle = title;
+      if (title) titleTextObserver.observe(title, {
+        childList: true, characterData: true, subtree: true
+      });
+    }
+    // This is a direct-child watcher of head, not a subtree observer.
+    titleNodeObserver.disconnect();
+    titleNodeObserver.observe(document.head, { childList: true });
+    syncRestorableHomeState();
+  }
+
+  // One top-level structural watcher detects replacement of the entire app
+  // root and portal promotions. It does NOT watch descendant message changes.
+  const appRootObserver = new MutationObserver((mutations) => {
+    if (document.hidden) return;
+    if (observedHeader && !observedHeader.isConnected) {
+      scheduleChromeRefresh();
+      return;
+    }
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (node.matches?.(
+          "[role='dialog'], [aria-modal='true'], #browser-sidebar-popover"
+        )) { scheduleChromeRefresh(); return; }
+      }
+    }
   });
+  function startHeaderOnlyMonitoring() {
+    // A single initialization scan is expected; not one scan per message.
+    refreshChrome();
+    observePageTitleOnly();
+    if (document.body)
+      appRootObserver.observe(document.body, { childList: true });
+    // When React hydrates the topbar after document_start, retry only while
+    // its header host is still absent. These are bounded startup retries.
+    for (const delay of [240, 850, 1600]) {
+      setTimeout(() => {
+        if (!document.hidden && (!observedHeader || !observedHeader.isConnected))
+          refreshChrome();
+      }, delay);
+    }
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", startHeaderOnlyMonitoring, { once: true });
+  } else {
+    startHeaderOnlyMonitoring();
+  }
+
   // Ensure Home is recorded before background suspension and after SPA
   // route changes. The existing observer covers React-driven navigation,
   // while these events cover a navigation with little visible DOM mutation.
@@ -1004,34 +1086,24 @@
   // geometry/replace its SVG without producing one of the watched text
   // mutations. Refresh ONLY the ink/opacity classes after the UI settles.
   // Do not call stabilizeTopActionBar here: Share must keep its v1.13 size.
-  let inkRecoveryTimers = [];
+  let lastChromeRecoveryAt = 0;
+  let resumeVerificationTimer = null;
   function recoverHeaderInkAfterTransition() {
-    for (const timerId of inkRecoveryTimers) clearTimeout(timerId);
-    inkRecoveryTimers = [];
-    function recoverInkAndWhiteStrip() {
-      makeTopLeftHeaderIconsBlack();
-      restoreConversationHeaderBackground();
-    }
-    recoverInkAndWhiteStrip();
-    requestAnimationFrame(() => {
-      recoverInkAndWhiteStrip();
-      requestAnimationFrame(recoverInkAndWhiteStrip);
-    });
-    // A last-opened chat can hydrate substantially later than pageshow or
-    // focus. Limited follow-ups also cover app resume without any typing.
-    // These are NOT repeating background timers or periodic polling.
-    for (const delay of [120, 360, 800, 1600, 3200]) {
-      inkRecoveryTimers.push(setTimeout(() => {
-        if (!hasUsableConversationHeaderBackground()) {
-          recoverInkAndWhiteStrip();
-        } else {
-          // Once the header is healthy, retain the lightweight ink refresh.
-          makeTopLeftHeaderIconsBlack();
-        }
-      }, delay));
-    }
+    if (document.hidden) return;
+    // iOS can emit pageshow, focus and visibilitychange in one resume burst.
+    // Collapse them into a single event-driven pass. CSS keeps marked icons
+    // black without continuously scanning during chat catch-up.
+    const now = Date.now();
+    if (now - lastChromeRecoveryAt < 200) return;
+    lastChromeRecoveryAt = now;
+    scheduleChromeRefresh();
+    if (resumeVerificationTimer !== null) clearTimeout(resumeVerificationTimer);
+    resumeVerificationTimer = setTimeout(() => {
+      resumeVerificationTimer = null;
+      if (!document.hidden && (!observedHeader || !observedHeader.isConnected))
+        scheduleChromeRefresh();
+    }, 450);
   }
-
   function sidebarInteraction(event) {
     const target = event.target?.nodeType === 1 ?
       event.target : event.target?.parentElement;
@@ -1082,11 +1154,9 @@
   window.addEventListener("focus", recoverHeaderInkAfterTransition);
 
   window.addEventListener("resize", () => {
-    schedule(true);
     recoverHeaderInkAfterTransition();
   }, { passive: true });
   window.addEventListener("popstate", () => {
-    schedule(true);
     recoverHeaderInkAfterTransition();
   });
 })();
