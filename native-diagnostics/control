@@ -1,8 +1,8 @@
 Package: com.551uk.chatgpt-native-diagnostics
 Name: ChatGPT Native Diagnostics
-Version: 2.1.0
+Version: 2.2.0
 Architecture: iphoneos-arm64
-Description: Native automatic crash capture for custom ChatGPT Gecko Helper: draggable button, original IPS, JIT fingerprint, app lifecycle and memory timeline, offline export, no daemon or message watcher.
+Description: Native crash diagnostics with Gecko process lifecycle and read-only session restoration markers for custom ChatGPT Gecko Helper: draggable button, original IPS, JIT fingerprint, app lifecycle and memory timeline, offline export, no daemon or message watcher.
 Section: Tweaks
 Maintainer: 551UK
 Author: 551UK
