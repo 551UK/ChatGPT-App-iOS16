@@ -48,6 +48,7 @@ static NSString *CGShort(NSString *s) {
 @property(nonatomic,strong) NSString *lastError;
 @property(nonatomic,assign) NSUInteger scans;
 @property(nonatomic,assign) NSUInteger samples;
+@property(nonatomic,assign) NSUInteger ticks;
 @property(nonatomic,strong) NSMutableDictionary<NSString *, NSString *> *knownReportStats;
 @property(nonatomic,strong) NSMutableSet<NSString *> *capturedHashes;
 + (instancetype)shared;
@@ -132,7 +133,7 @@ static NSString *CGShort(NSString *s) {
       "XUL file size: %@ bytes\nXUL modified: %@\n"
       "Main app memory resident: %llu bytes\n"
       "Captured report count: %ld\nLast scan: %@\nLast error: %@\n"
-      "Capture mode: on-demand and while app foregrounded, no launch daemon\n"
+      "Capture mode: automatic 5s foreground timeline and 10s crash scan; no launch daemon\n"
       "No per-message callbacks. No remote uploads.\n",
       CGWhen(),CGTarget,[[NSBundle mainBundle] bundleIdentifier]?:@"unknown",
       appVersion,g[@"CFBundleShortVersionString"]?:@"unknown",
@@ -306,7 +307,7 @@ static NSString *CGShort(NSString *s) {
               "Scan count: %lu\nChecked recent report filenames: %ld\nNew/changed readable reports: %ld\n"
               "Matched and archived custom Helper reports: %ld\n"
               "Reports newly captured this session: %ld\nLast error: %@\n"
-              "No launch daemon, periodic service or Gecko content watcher.\n"
+              "No launch daemon or Gecko message watcher; continuous foreground recording.\n"
               "If no system crash report is readable, use Import .ips.\n",
               self.lastScan,(unsigned long)self.scans,(long)examined,(long)candidates,
               (long)self.knownCrashes,(long)self.newCrashes,self.lastError];
@@ -323,6 +324,49 @@ static NSString *CGShort(NSString *s) {
         }
     });
 }
+// Process discovery is best-effort. iOS may restrict sysctl calls.
+// The process name alone is NOT enough to identify our custom Helper;
+// saved crash reports are attributed by bundle ID and complete path.
+- (NSString *)helperCandidatePIDs {
+    int mib[4]={CTL_KERN,KERN_PROC,KERN_PROC_ALL,0};
+    size_t bytes=0;
+    if (sysctl(mib,4,NULL,&bytes,NULL,0)!=0 || bytes==0)
+        return [NSString stringWithFormat:@"unavailable:errno=%d",errno];
+    struct kinfo_proc *procs=malloc(bytes);
+    if (!procs) return @"unavailable:malloc";
+    if (sysctl(mib,4,procs,&bytes,NULL,0)!=0) {
+        int saved=errno;free(procs);
+        return [NSString stringWithFormat:@"unavailable:errno=%d",saved];
+    }
+    NSMutableArray<NSString *> *ids=[NSMutableArray new];
+    for (size_t i=0; i<bytes/sizeof(struct kinfo_proc); i++)
+        if (strstr(procs[i].kp_proc.p_comm,"Reynard") != NULL)
+            [ids addObject:[NSString stringWithFormat:@"%d",procs[i].kp_proc.p_pid]];
+    free(procs);
+    return ids.count?[ids componentsJoinedByString:@","]:@"none-visible";
+}
+- (void)appendTimelineSample:(NSString *)kind {
+    NSString *path=[self file:@"timeline.tsv"];
+    NSFileManager *fm=NSFileManager.defaultManager;
+    if (![fm fileExistsAtPath:path]) {
+        NSData *header=[@"utc\tapp_state\tmain_resident_bytes\tcandidate_helper_pids\tevent\n"
+            dataUsingEncoding:NSUTF8StringEncoding];
+        [fm createFileAtPath:path contents:header attributes:nil];
+    }
+    NSString *state=UIApplication.sharedApplication.applicationState==UIApplicationStateActive?
+       @"active":@"background-or-inactive";
+    NSString *line=[NSString stringWithFormat:@"%@\t%@\t%llu\t%@\t%@\n",
+        CGWhen(),state,(unsigned long long)[self memoryBytes],
+        [self helperCandidatePIDs],kind?:@"sample"];
+    NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
+    if (!handle) { self.lastError=@"Unable to open timeline.tsv"; return; }
+    @try { [handle seekToEndOfFile]; [handle writeData:
+        [line dataUsingEncoding:NSUTF8StringEncoding]]; }
+    @catch(NSException *ex) { self.lastError=ex.reason?:@"timeline write error"; }
+    @finally { [handle closeFile]; }
+    self.samples++;
+}
+
 - (void)writeHeartbeat:(NSString *)event {
     dispatch_async(self.worker, ^{
         NSString *s=[NSString stringWithFormat:
@@ -332,6 +376,7 @@ static NSString *CGShort(NSString *s) {
           CGWhen(),[UIApplication sharedApplication].applicationState==UIApplicationStateActive?@"yes":@"no",
           (unsigned long long)[self memoryBytes]];
         [s writeToFile:[self file:@"app-heartbeat.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        [self appendTimelineSample:event?:@"automatic-sample"];
         if (event)[self appendEvent:event extra:
             [NSString stringWithFormat:@"main-memory=%llu",(unsigned long long)[self memoryBytes]]];
     });
@@ -436,7 +481,7 @@ static NSString *CGShort(NSString *s) {
     // files asynchronously before sharing, avoiding a race on partial writes.
     NSMutableArray *paths=[NSMutableArray arrayWithArray:@[
       [self file:@"build-info.txt"],[self file:@"capture-status.txt"],
-      [self file:@"app-heartbeat.txt"],[self file:@"events.log"],
+      [self file:@"app-heartbeat.txt"],[self file:@"timeline.tsv"],[self file:@"events.log"],
       [self file:@"events-previous.log"],[self file:@"last-crash-analysis.txt"]]];
     NSString *incident=[self file:@"incidents"];
     NSArray *names=[[[NSFileManager defaultManager]
@@ -501,15 +546,18 @@ static NSString *CGShort(NSString *s) {
 }
 - (void)tick:(NSTimer *)timer {
     if (UIApplication.sharedApplication.applicationState!=UIApplicationStateActive) return;
+    // Append one runtime sample every 5 seconds, continuously. Poll
+    // for NEW Helper IPS files every 10 seconds. No tapping required.
+    self.ticks++;
     [self writeHeartbeat:nil];
-    [self scan:NO];
+    if ((self.ticks % 2) == 0) [self scan:NO];
 }
 - (void)active:(NSNotification *)note {
     [self installButton];
     [self writeHeartbeat:@"app-active"];
     [self scan:NO];
     if (!self.timer)
-        self.timer=[NSTimer scheduledTimerWithTimeInterval:30 target:self
+        self.timer=[NSTimer scheduledTimerWithTimeInterval:5 target:self
               selector:@selector(tick:) userInfo:nil repeats:YES];
 }
 - (void)background:(NSNotification *)note {
