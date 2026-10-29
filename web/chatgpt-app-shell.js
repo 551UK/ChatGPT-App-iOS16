@@ -659,12 +659,12 @@
         wrappers.add(el);
       }
     }
-    for (const old of document.querySelectorAll("." + svgMarker)) {
-      if (!chosen.has(old)) old.classList.remove(svgMarker);
-    }
-    for (const old of document.querySelectorAll("." + wrapperMarker)) {
-      if (!wrappers.has(old)) old.classList.remove(wrapperMarker);
-    }
+    // v1.09: keep already-confirmed header glyphs black for their entire DOM
+    // lifetime. During streaming or return-to-chat scrolling, React briefly
+    // shifts/reflows the header. Geometry checks can then yield fewer than
+    // two candidates and v1.08 removed the black classes, turning icons grey.
+    // A detached glyph cannot render, so React removing old nodes is enough
+    // cleanup. New header glyphs are still detected and marked below.
     for (const svg of chosen) svg.classList.add(svgMarker);
     for (const wrapper of wrappers) wrapper.classList.add(wrapperMarker);
   }
