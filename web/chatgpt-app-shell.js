@@ -831,6 +831,84 @@
     return false;
   }
 
+  // In a Gecko sidebar transition the full-width conversation header can be
+  // reparented without the observer classifying it as a HEADER mutation.
+  // Recover only the previously working white strip; importantly this does
+  // not touch any header button sizes or the independent Share marker.
+  function restoreConversationHeaderBackground() {
+    if (window.location.pathname === "/" ||
+        window.location.pathname === "" || !document.body) return false;
+    const panelSelector = "#browser-sidebar-popover, #stage-popover-sidebar, " +
+      "#stage-slideover-sidebar, #sidebar-container, #sidebar-header, " +
+      "nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true']";
+    const controls = Array.from(document.querySelectorAll("button, [role='button'], a"));
+    const isRealTopControl = element => {
+      if (element.closest(panelSelector)) return false;
+      const r = element.getBoundingClientRect();
+      return r.width >= 18 && r.height >= 18 && r.top >= -12 &&
+        r.top <= 145 && r.right > 0 && r.left < innerWidth;
+    };
+    // Prefer Share (the persistent chat-header control), never a chat-body
+    // Share action. Use one of the already-marked LEFT header controls only
+    // if ChatGPT temporarily hides Share.
+    const share = controls.find(element => {
+      if (!isRealTopControl(element)) return false;
+      const label = (element.getAttribute("aria-label") || "").trim().toLowerCase();
+      const title = (element.getAttribute("title") || "").trim().toLowerCase();
+      const text = normalizedText(element).toLowerCase();
+      return text === "share" || label === "share" || title === "share" ||
+        label.startsWith("share ") || title.startsWith("share ");
+    });
+    const left = controls.filter(element =>
+      isRealTopControl(element) &&
+      (element.classList.contains("cg-ios16-left-header-size-stable") ||
+       element.classList.contains("cg-ios16-topbar-control")) &&
+      element.getBoundingClientRect().left < innerWidth * 0.45
+    );
+    const anchor = share || left[0];
+    if (!anchor) return false;
+
+    const possible = [];
+    for (let node = anchor; node && node !== document.body &&
+         node !== document.documentElement; node = node.parentElement) {
+      const r = node.getBoundingClientRect();
+      if (r.top > 105 || r.bottom < 30 || r.height < 42 ||
+          r.height > 160 || r.width < innerWidth * 0.92) continue;
+      if (r.left > 16 || r.right < innerWidth - 16) continue;
+      possible.push({node, rect:r});
+    }
+    if (!possible.length) return false;
+    possible.sort((a, b) => {
+      const aFull = a.rect.width >= innerWidth * 0.96;
+      const bFull = b.rect.width >= innerWidth * 0.96;
+      if (aFull !== bFull) return aFull ? -1 : 1;
+      if (Math.abs(a.rect.width - b.rect.width) > 2)
+        return b.rect.width - a.rect.width;
+      return a.rect.height - b.rect.height;
+    });
+    const best = possible[0].node;
+    const r = possible[0].rect;
+    let lastButtonBottom = anchor.getBoundingClientRect().bottom;
+    for (const control of left) {
+      lastButtonBottom = Math.max(lastButtonBottom, control.getBoundingClientRect().bottom);
+    }
+    const cutoff = Math.min(r.height, Math.max(0, Math.ceil(lastButtonBottom - r.top)));
+    if (cutoff < 24) return false;
+    for (const old of document.querySelectorAll(".cg-ios16-solid-topbar")) {
+      if (old !== best) {
+        old.classList.remove("cg-ios16-solid-topbar");
+        old.style.removeProperty("--cg-ios16-topbar-bg");
+        old.style.removeProperty("--cg-ios16-topbar-cutoff");
+        delete old.dataset.cgIos16SolidTopbar;
+      }
+    }
+    best.style.setProperty("--cg-ios16-topbar-bg", renderedBackgroundColor(share || anchor));
+    best.style.setProperty("--cg-ios16-topbar-cutoff", `${cutoff}px`);
+    best.classList.add("cg-ios16-solid-topbar");
+    best.dataset.cgIos16SolidTopbar = "1";
+    return true;
+  }
+
   function applyAppPresentation(updateHeader = true) {
     installStyle();
     dismissAppPromotion();
@@ -844,6 +922,11 @@
     // newly mounted header SVGs on ordinary updates WITHOUT touching the
     // control sizing, Share marker, or header row classification.
     makeTopLeftHeaderIconsBlack();
+    // A fresh conversation can replace the old header without a recognised
+    // toolbar mutation. Only recreate the background when it is missing;
+    // do not run header resizing on every streamed response.
+    if (!document.querySelector(".cg-ios16-solid-topbar"))
+      restoreConversationHeaderBackground();
     hideSuggestion();
     hideDisclaimers();
     if (document.body) revealCleanPage();
@@ -889,13 +972,17 @@
   function recoverHeaderInkAfterTransition() {
     for (const timerId of inkRecoveryTimers) clearTimeout(timerId);
     inkRecoveryTimers = [];
-    makeTopLeftHeaderIconsBlack();
-    requestAnimationFrame(() => {
+    function recoverInkAndWhiteStrip() {
       makeTopLeftHeaderIconsBlack();
-      requestAnimationFrame(makeTopLeftHeaderIconsBlack);
+      restoreConversationHeaderBackground();
+    }
+    recoverInkAndWhiteStrip();
+    requestAnimationFrame(() => {
+      recoverInkAndWhiteStrip();
+      requestAnimationFrame(recoverInkAndWhiteStrip);
     });
     for (const delay of [120, 360, 800]) {
-      inkRecoveryTimers.push(setTimeout(makeTopLeftHeaderIconsBlack, delay));
+      inkRecoveryTimers.push(setTimeout(recoverInkAndWhiteStrip, delay));
     }
   }
 
@@ -948,6 +1035,12 @@
   window.addEventListener("pageshow", recoverHeaderInkAfterTransition);
   window.addEventListener("focus", recoverHeaderInkAfterTransition);
 
-  window.addEventListener("resize", () => schedule(true), { passive: true });
-  window.addEventListener("popstate", () => schedule(true));
+  window.addEventListener("resize", () => {
+    schedule(true);
+    recoverHeaderInkAfterTransition();
+  }, { passive: true });
+  window.addEventListener("popstate", () => {
+    schedule(true);
+    recoverHeaderInkAfterTransition();
+  });
 })();
