@@ -219,7 +219,7 @@ static void CGSetPreference(NSString *key, id value) {
     if (!self) return nil;
 
     BOOL refresh = [[specifier propertyForKey:@"tipKind"] isEqualToString:@"refresh"];
-    NSString *symbol = refresh ? @"arrow.down.circle" : @"arrow.backward";
+    NSString *symbol = refresh ? @"arrow.left.circle" : @"arrow.backward";
     UIColor *accent = refresh ? UIColor.systemBlueColor : UIColor.systemTealColor;
 
     self.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -244,7 +244,7 @@ static void CGSetPreference(NSString *key, id value) {
         scaledFontForFont:[UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold]];
     heading.textColor = UIColor.labelColor;
     heading.adjustsFontForContentSizeCategory = YES;
-    heading.text = refresh ? @"Pull to Refresh" : @"Swipe Back";
+    heading.text = refresh ? @"Swipe to Refresh" : @"Swipe Back";
 
     UILabel *detail = [UILabel new];
     detail.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
@@ -252,7 +252,7 @@ static void CGSetPreference(NSString *key, id value) {
     detail.adjustsFontForContentSizeCategory = YES;
     detail.numberOfLines = 0;
     detail.text = refresh
-        ? @"Drag down on a ChatGPT page to refresh it."
+        ? @"Swipe left from the right edge to refresh the page, even in long chats."
         : @"Swipe right from the left edge to go back one page.";
 
     UIStackView *labels = [[UIStackView alloc] initWithArrangedSubviews:@[heading, detail]];
