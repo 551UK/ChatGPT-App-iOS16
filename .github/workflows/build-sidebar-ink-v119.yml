@@ -1,0 +1,144 @@
+name: Build ChatGPT v1.19 - persistent main sidebar icon black
+
+on:
+  push:
+    branches: [sidebar-ink-persistent-v119]
+    paths:
+      - 'web/chatgpt-app-shell.js'
+      - 'scripts/package.sh'
+      - '.github/workflows/build-sidebar-ink-v119.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: chatgpt-sidebar-ink-persistent-v119
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install packaging dependencies
+        run: |
+          brew install ldid dpkg
+          python3 -m pip install 'lief>=0.17,<0.18' 'Pillow>=10,<13'
+      - name: Set up Theos and iOS SDKs
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+      - name: Verify persistent sidebar ink fix based on v1.18
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin white-header-trim-v118 --depth=1
+          git diff --quiet origin/white-header-trim-v118 HEAD -- src prefs scripts/rebrand.py scripts/inject.py scripts/icon.py
+          ! git diff --quiet origin/white-header-trim-v118 HEAD -- web/chatgpt-app-shell.js
+          node --check web/chatgpt-app-shell.js
+          bash -n scripts/package.sh
+          python3 - <<'PY_CHECK'
+          from pathlib import Path
+          js = Path("web/chatgpt-app-shell.js").read_text()
+          code = js.split("function restoreMainHeaderLeftIconSizes(chosenSvgs) {", 1)[1].split("\n  // v1.01", 1)[0]
+          assert "stabilizeTopActionBar" not in code
+          assert "keepHeaderShareEnlarged" not in code
+          assert "button.closest(panelSelector)" in code
+          assert "pair.length !== 2" in code
+          assert 'data-cg-left-header-icon' in code
+          assert 'restoreMainHeaderLeftIconSizes(chosen);' in js
+          assert "html body .cg-ios16-left-header-size-stable" in js
+          assert "makeTopLeftHeaderIconsBlack();" in js
+          assert "recoverHeaderInkAfterTransition()" in js
+          assert "schedule(mutationChangesHeader(mutations))" in js
+          assert '#browser-sidebar-popover { width: 75vw' in js
+          assert 'html body .cg-ios16-share-control-stable { transform: scale(1.30)' in js
+          assert js.count("HEADER_WHITE_BAR_TRIM_PX") == 3
+          assert "const HEADER_WHITE_BAR_TRIM_PX = 3;" in js
+          assert "Math.min(bestRect.height, Math.ceil(rowBottom - bestRect.top)) -" in js
+          assert "Math.min(r.height, Math.ceil(lastButtonBottom - r.top)) -" in js
+          # v1.19: keep the MAIN header button (not only an SVG that React
+          # can replace during scrolling) permanently black.
+          assert "html body .cg-ios16-left-header-size-stable { color: #000000 !important; opacity: 1 !important; }" in js
+          assert "html body .cg-ios16-left-header-size-stable svg { filter: brightness(0) !important;" in js
+          assert "html body .cg-ios16-left-header-size-stable svg * { opacity: 1 !important; }" in js
+          assert "html body .cg-ios16-topbar-control[data-cg-icon-role='sidebar'] svg" in js
+          assert "button.closest(panelSelector)" in js
+
+          print("PASS: restore main header icon sizes without touching the sidebar dismiss control or Share")
+          PY_CHECK
+          grep -Fq 'manifest["version"] = "1.0.119"' scripts/package.sh
+          grep -Fq 'Version: 0.19.0-119' scripts/package.sh
+      - name: Package ChatGPT v1.19
+        run: bash scripts/package.sh
+      - name: Inspect rootless DEB and embedded styling script
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=dist/com.551uk.chatgptgecko_0.19.0-119_iphoneos-arm64.deb
+          test -s "$f"
+          test "$(dpkg-deb --field "$f" Package)" = "com.551uk.chatgptgecko"
+          test "$(dpkg-deb --field "$f" Version)" = "0.19.0-119"
+          test "$(dpkg-deb --field "$f" Architecture)" = "iphoneos-arm64"
+          python3 - <<'PY_CHECK'
+          import json, plistlib
+          from pathlib import Path
+          app=Path("build/work/unpacked/Payload/ChatGPT.app")
+          assert plistlib.loads((app/"Info.plist").read_bytes())["CFBundleIdentifier"]=="com.551uk.chatgptios16"
+          helper=app/"PlugIns/Reynard Helper.appex/Info.plist"
+          assert plistlib.loads(helper.read_bytes())["CFBundleIdentifier"]=="com.551uk.chatgptios16.Helper"
+          manifest=next(app.rglob("extensions/readerview/manifest.json"))
+          m=json.loads(manifest.read_text())
+          assert m["version"]=="1.0.119"
+          assert any("chatgpt-app-shell.js" in e.get("js",[]) for e in m.get("content_scripts",[]))
+          code=(manifest.parent/"chatgpt-app-shell.js").read_text()
+          assert "restoreMainHeaderLeftIconSizes(chosen);" in code
+          assert "cg-ios16-left-header-size-stable" in code
+          assert "const HEADER_WHITE_BAR_TRIM_PX = 3;" in code
+          assert code.count("HEADER_WHITE_BAR_TRIM_PX") == 3
+          assert "function restoreConversationHeaderBackground() {" in code
+          repair = code.split("function restoreConversationHeaderBackground() {", 1)[1].split("\n  function applyAppPresentation(", 1)[0]
+          assert "stabilizeTopActionBar()" not in repair
+          assert "cg-ios16-solid-topbar" in repair
+          assert 'window.location.pathname === "/"' in repair
+          assert "if (element.closest(panelSelector)) return false" in repair
+          recovery = code.split("function recoverHeaderInkAfterTransition() {", 1)[1].split("\n  function sidebarInteraction(", 1)[0]
+          assert "restoreConversationHeaderBackground();" in recovery
+          assert "recoverInkAndWhiteStrip();" in recovery
+          assert code.count("HEADER_WHITE_BAR_TRIM_PX") == 3
+          assert "Math.min(bestRect.height, Math.ceil(rowBottom - bestRect.top)) -" in code
+          assert "Math.min(r.height, Math.ceil(lastButtonBottom - r.top)) -" in code
+          assert "const HEADER_WHITE_BAR_TRIM_PX = 3;" in code
+          assert 'window.addEventListener("popstate"' in code
+          assert "html body .cg-ios16-left-header-size-stable { color: #000000 !important; opacity: 1 !important; }" in code
+          assert "html body .cg-ios16-left-header-size-stable svg { filter: brightness(0) !important;" in code
+          assert "html body .cg-ios16-topbar-control[data-cg-icon-role='sidebar'] svg" in code
+
+          print("PASS: Embedded Gecko script restores chat white bar separately from icon sizing")
+          PY_CHECK
+          shasum -a 256 "$f"
+      - name: Upload verified DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-0.19.0-119-Persistent-Sidebar-Ink
+          path: dist/com.551uk.chatgptgecko_0.19.0-119_iphoneos-arm64.deb
+      - name: Publish optional testing release (if permitted)
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create chatgpt-sidebar-ink-persistent-v119 \
+            dist/com.551uk.chatgptgecko_0.19.0-119_iphoneos-arm64.deb \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "ChatGPT v1.19 — Persistent black sidebar icon" \
+            --notes "Experimental v1.19 from preserved v1.18. Fixes intermittent grey main sidebar header icon when mid-chat scrolling and reopening sidebar by keeping black SVG ink/opacity on the confirmed MAIN top-left header button, not only a transient SVG child. Preserves the 140% sidebar and 150% New Chat icon scaling, 130% Share sizing, 75% sidebar, white header trim, native app and Gecko helper. The smaller toggle inside the sidebar is excluded. v1.15 and v1.18 stay untouched."
