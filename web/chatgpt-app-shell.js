@@ -29,6 +29,11 @@
     ".cg-ios16-topbar-control.cg-ios16-home-topbar-control { transform: scale(1.40) !important; }",
     ".cg-ios16-topbar-control[data-cg-icon-role='sidebar'] { transform: scale(1.40) !important; }",
     ".cg-ios16-topbar-control[data-cg-icon-role='new'] { transform: scale(1.50) !important; }",
+    // v1.16: independently retain the main header icon size when closing the sidebar.
+    // The inner sidebar dismiss control is deliberately NOT a sizing target.
+    "html body .cg-ios16-left-header-size-stable { transform: scale(1.40) !important; transform-origin: center center !important; }",
+    "html body .cg-ios16-left-header-size-stable[data-cg-left-header-icon='new'] { transform: scale(1.50) !important; }",
+    "#browser-sidebar-popover .cg-ios16-left-header-size-stable, #stage-popover-sidebar .cg-ios16-left-header-size-stable, #stage-slideover-sidebar .cg-ios16-left-header-size-stable, #sidebar-container .cg-ios16-left-header-size-stable { transform: none !important; }",
     // v1.01: colour the two SVG icons themselves; do not rely on their
     // containing button tags, role metadata or order.
     ".cg-ios16-direct-black-svg { color: #000000 !important; opacity: 1 !important; filter: brightness(0) !important; -webkit-filter: brightness(0) !important; }",
@@ -667,6 +672,74 @@
     if (group) group.classList.add(marker);
   }
 
+  // A pencil has a long diagonal stroke; the sidebar toggle's square and
+  // vertical divider do not. Read SVG geometry rather than guessing which
+  // header icon comes first when React swaps the two controls.
+  function looksLikeNewChatPencil(svg) {
+    for (const line of svg.querySelectorAll("line")) {
+      const dx = Math.abs(Number(line.getAttribute("x2")) - Number(line.getAttribute("x1")));
+      const dy = Math.abs(Number(line.getAttribute("y2")) - Number(line.getAttribute("y1")));
+      if (dx > 4.5 && dy > 4.5 && dx / dy > 0.6 && dx / dy < 1.7) return true;
+    }
+    for (const path of svg.querySelectorAll("path")) {
+      if (typeof path.getTotalLength !== "function" ||
+          typeof path.getPointAtLength !== "function") continue;
+      try {
+        const len = path.getTotalLength();
+        for (let at = 0; at + 7.5 <= len; at += 2) {
+          const a = path.getPointAtLength(at);
+          const b = path.getPointAtLength(at + 7.5);
+          const dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y);
+          if (dx > 4.5 && dy > 4.5 && dx / dy > 0.6 && dx / dy < 1.7) return true;
+        }
+      } catch (_) { /* Skip unsupported path geometry. */ }
+    }
+    return false;
+  }
+
+  // Called from the EXISTING ink-only recovery function: no Share sizing,
+  // no full-header row detection, no change to sidebar button scale.
+  function restoreMainHeaderLeftIconSizes(chosenSvgs) {
+    const panelSelector = "#browser-sidebar-popover, #stage-popover-sidebar, " +
+      "#stage-slideover-sidebar, #sidebar-container, #sidebar-header, " +
+      "nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true']";
+    const pair = [];
+    for (const svg of chosenSvgs) {
+      const button = svg.closest("button, [role='button'], a[href]");
+      if (!button || button.closest(panelSelector) ||
+          pair.some(item => item.button === button)) continue;
+      const rect = button.getBoundingClientRect();
+      if (rect.left < -12 || rect.right > innerWidth * 0.44 ||
+          rect.top < -12 || rect.bottom > 165) continue;
+      pair.push({button, svg, centerY: rect.top + rect.height / 2});
+    }
+    // No guessing when a partial panel or overlay only exposes one glyph.
+    if (pair.length !== 2 || Math.abs(pair[0].centerY - pair[1].centerY) > 24) return;
+
+    const roles = pair.map(({button}) => iconIdentity(button));
+    if (roles[0] === roles[1] || roles.some(role => !role)) {
+      const pencilIndices = pair.map(({svg}) => looksLikeNewChatPencil(svg));
+      if (pencilIndices.filter(Boolean).length === 1) {
+        roles[pencilIndices.indexOf(true)] = "new";
+        roles[pencilIndices.indexOf(false)] = "sidebar";
+      } else if (roles.filter(role => role === "new").length === 1) {
+        roles[roles.indexOf("")] = "sidebar";
+      } else if (roles.filter(role => role === "sidebar").length === 1) {
+        roles[roles.indexOf("")] = "new";
+      }
+    }
+    pair.forEach(({button}, index) => {
+      // One-way class for the lifetime of this header button. Even if the
+      // normal topbar row calculation drops its size on sidebar close, the
+      // independent class keeps the original 1.40x / 1.50x scaling.
+      button.classList.add("cg-ios16-left-header-size-stable");
+      const role = roles[index];
+      if (role === "new" || role === "sidebar") {
+        button.setAttribute("data-cg-left-header-icon", role);
+      }
+    });
+  }
+
   // v1.01: use actual SVG geometry, not the parent button's identity.
   // In the user's screenshots the sidebar icon remains #878787 whether it is
   // on the left OR right, while the adjacent pencil is #000000. That can be
@@ -693,6 +766,7 @@
     // physical position so the pencil and sidebar can freely exchange sides.
     candidates.sort((a, b) => a.x - b.x || a.y - b.y);
     const chosen = new Set(candidates.slice(0, 2).map(item => item.svg));
+    restoreMainHeaderLeftIconSizes(chosen);
     const wrappers = new Set();
     for (const svg of chosen) {
       // Even a black SVG will render grey if a surrounding element has
