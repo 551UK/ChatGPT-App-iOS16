@@ -1,0 +1,165 @@
+name: Promote v1.23 and remove superseded builds
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/promote-v123-cleanup.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: chatgpt-v123-release-cleanup
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify main and preserved v1.23 source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "main"
+          git fetch --depth=1 origin best-known-v1.23
+          # Main differs from the best-known branch only in repository docs/workflow.
+          git diff --quiet FETCH_HEAD HEAD -- src web prefs scripts
+          test "$(grep -c '^# ' README.md)" -eq 1
+          grep -Fxq '# Features' README.md
+          test "$(grep -c '^## ' README.md || true)" -eq 0
+          grep -Fq 'Version: 0.19.0-123' scripts/package.sh
+          grep -Fq 'manifest["version"] = "1.0.123"' scripts/package.sh
+
+      - name: Create canonical v1.23 release with verified DEB
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/v123"
+          DEB="$RUNNER_TEMP/v123/com.551uk.chatgptgecko_0.19.0-123_iphoneos-arm64.deb"
+          gh release download chatgpt-back-icon-v123 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'com.551uk.chatgptgecko_0.19.0-123_iphoneos-arm64.deb' \
+            --dir "$RUNNER_TEMP/v123"
+          test -s "$DEB"
+          test "$(stat -c%s "$DEB")" -eq 73460360
+          test "$(dpkg-deb --field "$DEB" Package)" = "com.551uk.chatgptgecko"
+          test "$(dpkg-deb --field "$DEB" Version)" = "0.19.0-123"
+          test "$(dpkg-deb --field "$DEB" Architecture)" = "iphoneos-arm64"
+          if gh release view v1.23 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Canonical v1.23 already exists. Verifying and preserving."
+            gh release view v1.23 --repo "$GITHUB_REPOSITORY" --json assets \
+              --jq '.assets[].name' | grep -Fxq "$(basename "$DEB")"
+          else
+            gh release create v1.23 "$DEB" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "ChatGPT v1.23" \
+              --notes-file README.md \
+              --latest
+          fi
+          gh release view v1.23 --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name' | grep -Fxq "$(basename "$DEB")"
+          echo "Canonical release v1.23 verified."
+
+      - name: Delete obsolete GitHub releases and their DEBs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          failures=0
+          while IFS= read -r tag; do
+            test -n "$tag" || continue
+            if test "$tag" = "v1.23"; then continue; fi
+            echo "Removing obsolete release and tag: $tag"
+            if ! gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes; then
+              echo "::error::Could not delete release $tag"
+              failures=1
+            fi
+          done < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+                     --json tagName --jq '.[].tagName')
+          test "$failures" -eq 0
+          test "$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+                    --json tagName --jq '.[].tagName')" = "v1.23"
+
+      - name: Delete old GitHub Actions DEB build artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          failures=0
+          while IFS=$'\t' read -r id label; do
+            test -n "$id" || continue
+            # Keep the last verified v1.23 build as a redundant backup.
+            if test "$id" = "12879273137"; then
+              echo "Retaining v1.23 artifact: $id"
+              continue
+            fi
+            echo "Removing superseded build artifact $id ($label)"
+            if ! gh api --method DELETE \
+              "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" --silent; then
+              echo "::warning::Could not remove artifact $id"
+              failures=1
+            fi
+          done < <(gh api --paginate \
+                     "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+                     --jq '.artifacts[] | [.id,.name] | @tsv')
+          test "$failures" -eq 0
+
+      - name: Retain best-known baselines and delete obsolete branches
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          failures=0
+          while IFS= read -r branch; do
+            test -n "$branch" || continue
+            case "$branch" in
+              main|best-known-v1.23|stable-v0.84-untouched|best-known-v0.94|\
+              sidebar-icon-true-black-v101|baseline-v110-working-do-not-edit|\
+              fix-share-button-stable-v112|baseline-v115-working-preserved|\
+              header-surface-rehydration-v120|right-edge-refresh-v121|\
+              settings-right-edge-guide-v122)
+                echo "Preserving $branch"
+                ;;
+              *)
+                echo "Removing obsolete branch $branch"
+                if ! gh api --method DELETE \
+                  "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch" --silent; then
+                  echo "::warning::Could not remove branch $branch"
+                  failures=1
+                fi
+                ;;
+            esac
+          done < <(gh api --paginate \
+                     "repos/$GITHUB_REPOSITORY/branches?per_page=100" \
+                     --jq '.[].name')
+          test "$failures" -eq 0
+          test -n "$(gh api "repos/$GITHUB_REPOSITORY/branches/best-known-v1.23" --jq .name)"
+          test -n "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .name)"
+
+      - name: Final verification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "Branches:"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name'
+          echo "Releases:"
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100
+          echo "v1.23 assets:"
+          gh release view v1.23 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
+          echo "Cleanup complete."
