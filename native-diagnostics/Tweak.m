@@ -3,8 +3,12 @@
 #import <CommonCrypto/CommonDigest.h>
 #import <mach/mach.h>
 #import <sys/sysctl.h>
+#import <errno.h>
+#import <stdlib.h>
+#import <string.h>
 
 static NSString *const CGRoot = @"/var/mobile/Documents/ChatGPTNativeDiagnostics";
+static const NSUInteger CGMaximumIPSBytes = 15000000;
 static NSString *const CGTarget = @"com.551uk.chatgptios16";
 static NSString *const CGHelper = @"com.551uk.chatgptios16.Helper";
 
@@ -43,6 +47,8 @@ static NSString *CGShort(NSString *s) {
 @property(nonatomic,strong) NSString *lastScan;
 @property(nonatomic,strong) NSString *lastError;
 @property(nonatomic,assign) NSUInteger scans;
+@property(nonatomic,assign) NSUInteger samples;
+@property(nonatomic,strong) NSMutableDictionary<NSString *, NSString *> *knownReportStats;
 @property(nonatomic,strong) NSMutableSet<NSString *> *capturedHashes;
 + (instancetype)shared;
 - (void)start;
@@ -59,6 +65,7 @@ static NSString *CGShort(NSString *s) {
     if ((self=[super init])) {
         _worker=dispatch_queue_create("com.551uk.chatgpt.native.diag",DISPATCH_QUEUE_SERIAL);
         _capturedHashes=[NSMutableSet new];
+        _knownReportStats=[NSMutableDictionary new];
         _lastScan=@"Never";
         _lastError=@"";
         NSError *error=nil;
@@ -83,11 +90,7 @@ static NSString *CGShort(NSString *s) {
     NSString *path=[self file:@"events.log"];
     NSString *line=[NSString stringWithFormat:@"%@\t%@\t%@\n",CGWhen(),event,CGShort(extra)];
     NSFileManager *fm=[NSFileManager defaultManager];
-    NSDictionary *attr=[fm attributesOfItemAtPath:path error:nil];
-    if ([attr[NSFileSize] unsignedLongLongValue]>600000) {
-        [fm removeItemAtPath:[self file:@"events-previous.log"] error:nil];
-        [fm moveItemAtPath:path toPath:[self file:@"events-previous.log"] error:nil];
-    }
+    // Append-only event log: retained until user removes it in Filza.
     NSData *bytes=[line dataUsingEncoding:NSUTF8StringEncoding];
     if (![fm fileExistsAtPath:path]) [fm createFileAtPath:path contents:nil attributes:nil];
     NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
@@ -121,7 +124,7 @@ static NSString *CGShort(NSString *s) {
     NSString *gecko=@"/var/jb/Applications/ChatGPT.app/Frameworks/GeckoView.framework/Info.plist";
     NSDictionary *g=[NSDictionary dictionaryWithContentsOfFile:gecko];
     return [NSString stringWithFormat:
-      @"ChatGPT Native Diagnostics v2.0\nCaptured UTC: %@\n"
+      @"ChatGPT Native Diagnostics v2.1\nCaptured UTC: %@\n"
       "Target bundle: %@\nCurrent bundle: %@\n"
       "App version: %@\nGeckoView version: %@\n"
       "iOS version: %@\nHardware model: %@\n"
@@ -141,7 +144,7 @@ static NSString *CGShort(NSString *s) {
       self.lastScan,self.lastError];
 }
 - (BOOL)matchesReportData:(NSData *)data {
-    if (!data.length || data.length>3000000) return NO;
+    if (!data.length || data.length>CGMaximumIPSBytes) return NO;
     NSString *s=[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     if (!s) return NO;
     return [s containsString:CGHelper] ||
@@ -171,7 +174,7 @@ static NSString *CGShort(NSString *s) {
     }
     // Apple .ips can contain two JSON objects, unlike a one-object JSON file.
     NSRange nl=[text rangeOfString:@"\n"];
-    if (nl.location!=NSNotFound && text.length-nl.location<3000000) {
+    if (nl.location!=NSNotFound && text.length-nl.location<CGMaximumIPSBytes) {
         NSData *payload=[[text substringFromIndex:nl.location+1] dataUsingEncoding:NSUTF8StringEncoding];
         NSDictionary *body=[NSJSONSerialization JSONObjectWithData:payload options:0 error:nil];
         if ([body isKindOfClass:NSDictionary.class]) {
@@ -273,7 +276,7 @@ static NSString *CGShort(NSString *s) {
                     NSString *path=[directory stringByAppendingPathComponent:name];
                     NSDictionary *attr=[fm attributesOfItemAtPath:path error:nil];
                     if (![attr[NSFileType] isEqual:NSFileTypeRegular]) continue;
-                    if ([attr[NSFileSize] unsignedLongLongValue]>3000000) continue;
+                    if ([attr[NSFileSize] unsignedLongLongValue]>CGMaximumIPSBytes) continue;
                     [files addObject:@{@"path":path,
                        @"date":attr[NSFileModificationDate]?:[NSDate distantPast]}];
                 }
@@ -283,17 +286,24 @@ static NSString *CGShort(NSString *s) {
                 for (NSDictionary *item in files) {
                     if (examined>=120) break;
                     examined++;
-                    NSData *bytes=[NSData dataWithContentsOfFile:item[@"path"] options:0 error:nil];
-                    if (!bytes)continue;
+                    // Read only new or changed IPS reports; avoid repeat hashes.
+                    NSString *p=item[@"path"];
+                    NSDictionary *attrs=[fm attributesOfItemAtPath:p error:nil];
+                    NSString *signature=[NSString stringWithFormat:@"%@:%@",
+                      attrs[NSFileSize]?:@0,[attrs[NSFileModificationDate] description]?:@""];
+                    if ([self.knownReportStats[p] isEqualToString:signature]) continue;
+                    NSData *bytes=[NSData dataWithContentsOfFile:p options:0 error:nil];
+                    if (!bytes) continue;
+                    self.knownReportStats[p]=signature;
                     candidates++;
-                    [self captureData:bytes sourceName:[item[@"path"] lastPathComponent]];
+                    [self captureData:bytes sourceName:p.lastPathComponent];
                 }
             }
             self.scans++;
             self.lastScan=CGWhen();
             NSString *status=[NSString stringWithFormat:
-              @"ChatGPT Native Diagnostics v2.0\nLast scan UTC: %@\n"
-              "Scan count: %lu\nChecked candidate files: %ld\nReadable report data: %ld\n"
+              @"ChatGPT Native Diagnostics v2.1\nLast scan UTC: %@\n"
+              "Scan count: %lu\nChecked recent report filenames: %ld\nNew/changed readable reports: %ld\n"
               "Matched and archived custom Helper reports: %ld\n"
               "Reports newly captured this session: %ld\nLast error: %@\n"
               "No launch daemon, periodic service or Gecko content watcher.\n"
@@ -316,7 +326,7 @@ static NSString *CGShort(NSString *s) {
 - (void)writeHeartbeat:(NSString *)event {
     dispatch_async(self.worker, ^{
         NSString *s=[NSString stringWithFormat:
-          @"ChatGPT Native Diagnostics v2.0\nApp is alive: %@\n"
+          @"ChatGPT Native Diagnostics v2.1\nApp is alive: %@\n"
           "App foregrounded: %@\nResident memory bytes: %llu\n"
           "No daemon. Next heartbeat only while app foregrounded.\n",
           CGWhen(),[UIApplication sharedApplication].applicationState==UIApplicationStateActive?@"yes":@"no",
@@ -345,11 +355,11 @@ static NSString *CGShort(NSString *s) {
     if (!self.bubble) {
         UIButton *b=[UIButton buttonWithType:UIButtonTypeCustom];
         b.backgroundColor=[UIColor colorWithRed:.09 green:.19 blue:.36 alpha:.92];
-        b.layer.cornerRadius=13;
+        b.layer.cornerRadius=12;
         b.layer.shadowColor=UIColor.blackColor.CGColor;
         b.layer.shadowOpacity=.18;
         b.layer.shadowRadius=5;
-        b.titleLabel.font=[UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        b.titleLabel.font=[UIFont systemFontOfSize:10.5 weight:UIFontWeightSemibold];
         [b setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
         [b addTarget:self action:@selector(tapped) forControlEvents:UIControlEventTouchUpInside];
         UIPanGestureRecognizer *pan=[[UIPanGestureRecognizer alloc]initWithTarget:self action:@selector(drag:)];
@@ -357,7 +367,14 @@ static NSString *CGShort(NSString *s) {
         self.bubble=b;
     }
     CGSize size=window.bounds.size;
-    self.bubble.frame=CGRectMake(12,MAX(155,size.height*.47),112,43);
+    // Center between the top-left sidebar control and top-right ellipsis,
+    // at the highest point below the Dynamic Island/status-bar safe area.
+    CGFloat topInset=MAX(window.safeAreaInsets.top,
+                         UIApplication.sharedApplication.statusBarFrame.size.height);
+    CGFloat buttonWidth=90.0, buttonHeight=30.0;
+    CGFloat buttonTop=MAX(0.0,topInset)+1.0;
+    self.bubble.frame=CGRectMake((size.width-buttonWidth)/2.0,buttonTop,
+                                 buttonWidth,buttonHeight);
     [self updateLabel];
     [window addSubview:self.bubble];
     [window bringSubviewToFront:self.bubble];
@@ -367,7 +384,9 @@ static NSString *CGShort(NSString *s) {
     CGPoint delta=[pan translationInView:self.bubble.superview];
     CGPoint center=self.bubble.center;
     center.x=MAX(60,MIN(self.bubble.superview.bounds.size.width-60,center.x+delta.x));
-    center.y=MAX(100,MIN(self.bubble.superview.bounds.size.height-75,center.y+delta.y));
+    CGFloat minY=MAX(self.bubble.superview.safeAreaInsets.top,
+                     UIApplication.sharedApplication.statusBarFrame.size.height)+16;
+    center.y=MAX(minY,MIN(self.bubble.superview.bounds.size.height-75,center.y+delta.y));
     self.bubble.center=center;
     [pan setTranslation:CGPointZero inView:self.bubble.superview];
 }
@@ -396,8 +415,8 @@ static NSString *CGShort(NSString *s) {
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     NSURL *url=urls.firstObject;
     NSData *data=[NSData dataWithContentsOfURL:url options:0 error:nil];
-    if (!data||data.length>3000000) {
-        [self alert:@"Import failed" message:@"File unavailable or larger than 3 MB."];
+    if (!data||data.length>CGMaximumIPSBytes) {
+        [self alert:@"Import failed" message:@"File unavailable or larger than 15 MB."];
         return;
     }
     if (![self matchesReportData:data]) {
