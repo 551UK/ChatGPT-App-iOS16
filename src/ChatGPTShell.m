@@ -346,10 +346,45 @@ static UIImage *CGStartupIcon(void) {
 }
 @end
 
+// Use the original Reynard refresh *views* and visual behaviour, not a web
+// reload indicator. In Reynard 0.19.0 WebContentView owns the large spinner
+// and GeckoView which pull-to-refresh animates with a 64pt spring offset.
+// Right-edge pan is the new trigger; the old vertical recognizer is disabled
+// via Reynard's AppearanceSettings preference below.
+static UIView *CGFindRefreshView(UIView *root, NSString *suffix, NSUInteger depth) {
+    if (!root || depth > 9) return nil;
+    if ([NSStringFromClass(root.class) hasSuffix:suffix]) return root;
+    for (UIView *child in root.subviews) {
+        UIView *match = CGFindRefreshView(child, suffix, depth + 1);
+        if (match) return match;
+    }
+    return nil;
+}
+
+static UIActivityIndicatorView *CGFindRefreshSpinner(UIView *root, NSUInteger depth) {
+    if (!root || depth > 9) return nil;
+    if ([root isKindOfClass:UIActivityIndicatorView.class])
+        return (UIActivityIndicatorView *)root;
+    for (UIView *child in root.subviews) {
+        UIActivityIndicatorView *spinner = CGFindRefreshSpinner(child, depth + 1);
+        if (spinner) return spinner;
+    }
+    return nil;
+}
+
 @interface CGAppNavigation : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic,weak) UIViewController *owner;
 @property(nonatomic,strong) UIScreenEdgePanGestureRecognizer *backGesture;
+@property(nonatomic,strong) UIScreenEdgePanGestureRecognizer *refreshGesture;
+@property(nonatomic,weak) UIView *refreshSurface;
+@property(nonatomic,weak) UIView *refreshIndicatorContainer;
+@property(nonatomic,weak) UIActivityIndicatorView *refreshIndicator;
+@property(nonatomic,assign) BOOL trackingRefresh;
+@property(nonatomic,assign) BOOL refreshing;
+@property(nonatomic,assign) NSUInteger refreshGeneration;
+@property(nonatomic,assign) CFAbsoluteTime lastRefreshAt;
 - (void)installInController:(UIViewController *)controller;
+- (void)bindRefreshInContentView:(UIView *)content;
 @end
 
 @implementation CGAppNavigation
@@ -371,20 +406,209 @@ static UIImage *CGStartupIcon(void) {
     }
 }
 
+- (void)bindRefreshInContentView:(UIView *)content {
+    if (!content) return;
+
+    // The upstream ContentView installs a RIGHT-edge Forward recognizer.
+    // This dedicated ChatGPT app uses that same edge for Refresh instead.
+    // Never disable the left-edge Back recognizer or unrelated gestures.
+    for (UIGestureRecognizer *g in content.gestureRecognizers) {
+        if ([g isKindOfClass:UIScreenEdgePanGestureRecognizer.class]) {
+            UIScreenEdgePanGestureRecognizer *edge = (UIScreenEdgePanGestureRecognizer *)g;
+            if (edge.edges == UIRectEdgeRight && edge != self.refreshGesture)
+                edge.enabled = NO;
+        }
+    }
+
+    UIView *webContent = CGFindRefreshView(content, @".WebContentView", 0);
+    if (!webContent) return;
+    UIView *gecko = CGFindRefreshView(webContent, @".GeckoView", 0);
+    UIActivityIndicatorView *spinner = CGFindRefreshSpinner(webContent, 0);
+    if (!gecko || !spinner || !spinner.superview) return;
+    self.refreshSurface = gecko;
+    self.refreshIndicator = spinner;
+    self.refreshIndicatorContainer = spinner.superview;
+}
+
+- (void)resetRefreshProgress {
+    UIActivityIndicatorView *spinner = self.refreshIndicator;
+    if (spinner) {
+        [spinner stopAnimating];
+        spinner.layer.speed = 1;
+        spinner.layer.timeOffset = 0;
+        spinner.layer.beginTime = 0;
+    }
+    self.trackingRefresh = NO;
+}
+
+- (void)showRefreshProgress:(CGFloat)distance {
+    UIView *gecko = self.refreshSurface;
+    UIActivityIndicatorView *spinner = self.refreshIndicator;
+    UIView *indicator = self.refreshIndicatorContainer;
+    if (!gecko || !spinner || !indicator) return;
+
+    // Map a horizontal ~90pt edge gesture to Reynard's vertical pull distance.
+    // Reuse its rubber-band equation, spinner progress, alpha and actual views.
+    CGFloat progress = MIN(MAX(distance / 90.0, 0), 1);
+    CGFloat pullDistance = progress * 350.0;
+    CGFloat rubberBand = 0.55 * pullDistance;
+    CGFloat height = MAX(gecko.bounds.size.height, 1);
+    CGFloat offset = rubberBand * height / (height + rubberBand);
+    CGFloat spinnerHeight = MAX(spinner.intrinsicContentSize.height, 1);
+    CGFloat alpha = (offset - spinnerHeight) / (64.0 - spinnerHeight);
+
+    if (!self.trackingRefresh) {
+        [spinner startAnimating];
+        spinner.layer.speed = 0;
+        spinner.layer.timeOffset = 0;
+        spinner.layer.beginTime = 0;
+        self.trackingRefresh = YES;
+    }
+    spinner.layer.timeOffset = MIN(offset / 64.0, 1) * 0.3;
+    indicator.alpha = MIN(MAX(alpha, 0), 1);
+    gecko.transform = CGAffineTransformMakeTranslation(0, offset);
+}
+
+- (void)finishRefreshPresentation {
+    if (self.trackingRefresh) {
+        [self resetRefreshProgress];
+    }
+    UIView *gecko = self.refreshSurface;
+    UIView *indicator = self.refreshIndicatorContainer;
+    [UIView animateWithDuration:0.45
+                          delay:0
+         usingSpringWithDamping:0.90
+          initialSpringVelocity:0
+                        options:UIViewAnimationOptionBeginFromCurrentState |
+                                UIViewAnimationOptionAllowUserInteraction
+                     animations:^{
+        if (gecko) gecko.transform = CGAffineTransformIdentity;
+        if (indicator) indicator.alpha = 0;
+    } completion:^(__unused BOOL done) {
+        if (!self.refreshing) [self resetRefreshProgress];
+    }];
+}
+
+- (void)beginSwipeRefresh {
+    if (self.refreshing) return;
+    UIViewController *owner = self.owner;
+    SEL reload = NSSelectorFromString(@"reloadPageKeyCommand:");
+    if (!owner || ![owner respondsToSelector:reload]) {
+        [self finishRefreshPresentation];
+        return;
+    }
+
+    self.refreshing = YES;
+    self.lastRefreshAt = CFAbsoluteTimeGetCurrent();
+    NSUInteger generation = ++self.refreshGeneration;
+
+    UIActivityIndicatorView *spinner = self.refreshIndicator;
+    if (spinner) {
+        if (self.trackingRefresh) {
+            CFTimeInterval paused = spinner.layer.timeOffset;
+            spinner.layer.speed = 1;
+            spinner.layer.timeOffset = 0;
+            spinner.layer.beginTime = 0;
+            spinner.layer.beginTime =
+              [spinner.layer convertTime:CACurrentMediaTime() fromLayer:nil] - paused;
+            self.trackingRefresh = NO;
+        } else {
+            [spinner startAnimating];
+        }
+    }
+
+    [UIView animateWithDuration:0.45
+                          delay:0
+         usingSpringWithDamping:0.90
+          initialSpringVelocity:0
+                        options:UIViewAnimationOptionBeginFromCurrentState |
+                                UIViewAnimationOptionAllowUserInteraction
+                     animations:^{
+        if (self.refreshIndicatorContainer)
+            self.refreshIndicatorContainer.alpha = 1;
+        if (self.refreshSurface)
+            self.refreshSurface.transform = CGAffineTransformMakeTranslation(0, 64);
+    } completion:nil];
+
+    // Reynard's real GeckoSession reload, not window.location.reload() or
+    // a fabricated refresh notification. History and cookies are preserved.
+    ((void (*)(id,SEL,id))objc_msgSend)(owner, reload, nil);
+
+    // Upstream keeps the spinner until Gecko reports its load complete.
+    // The Swift completion callback is not exposed to our Obj-C shell.
+    // Use a bounded native presentation interval, without attempting to
+    // change Gecko's private Swift state or risking a stuck spinner.
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        CGAppNavigation *strong = weakSelf;
+        if (!strong || strong.refreshGeneration != generation) return;
+        strong.refreshing = NO;
+        [strong finishRefreshPresentation];
+    });
+}
+
+- (void)handleRefreshSwipe:(UIScreenEdgePanGestureRecognizer *)gesture {
+    CGPoint delta = [gesture translationInView:gesture.view];
+    CGPoint velocity = [gesture velocityInView:gesture.view];
+    CGFloat distance = MAX(0, -delta.x);
+    switch (gesture.state) {
+        case UIGestureRecognizerStateBegan:
+        case UIGestureRecognizerStateChanged:
+            if (!self.refreshing && distance > fabs(delta.y) * 1.2)
+                [self showRefreshProgress:distance];
+            break;
+        case UIGestureRecognizerStateEnded:
+            if (!self.refreshing &&
+                distance >= 85.0 &&
+                velocity.x < 150.0 &&
+                distance > fabs(delta.y) * 1.2) {
+                [self beginSwipeRefresh];
+            } else if (!self.refreshing) {
+                [self finishRefreshPresentation];
+            }
+            break;
+        case UIGestureRecognizerStateCancelled:
+        case UIGestureRecognizerStateFailed:
+            if (!self.refreshing) [self finishRefreshPresentation];
+            break;
+        default:
+            break;
+    }
+}
+
 - (void)installInController:(UIViewController *)controller {
     if (self.backGesture) return;
     self.owner = controller;
-
-    UIScreenEdgePanGestureRecognizer *gesture =
+    UIScreenEdgePanGestureRecognizer *back =
       [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self
                                                        action:@selector(handleBackSwipe:)];
-    gesture.edges = UIRectEdgeLeft;
-    gesture.cancelsTouchesInView = NO;
-    gesture.delegate = self;
-    [controller.view addGestureRecognizer:gesture];
-    self.backGesture = gesture;
+    back.edges = UIRectEdgeLeft;
+    back.cancelsTouchesInView = NO;
+    back.delegate = self;
+    [controller.view addGestureRecognizer:back];
+    self.backGesture = back;
 
-    NSLog(@"[ChatGPTGecko] Full-screen swipe-back navigation installed");
+    UIScreenEdgePanGestureRecognizer *refresh =
+      [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self
+                                                       action:@selector(handleRefreshSwipe:)];
+    refresh.edges = UIRectEdgeRight;
+    refresh.cancelsTouchesInView = NO;
+    refresh.delegate = self;
+    [controller.view addGestureRecognizer:refresh];
+    self.refreshGesture = refresh;
+    NSLog(@"[ChatGPTGecko] Left edge Back, right edge Refresh installed");
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture {
+    if (gesture != self.refreshGesture) return YES;
+    if (self.refreshing ||
+        CFAbsoluteTimeGetCurrent() - self.lastRefreshAt < 1.8 ||
+        !self.refreshSurface || !self.refreshIndicator) return NO;
+
+    CGPoint velocity = [(UIPanGestureRecognizer *)gesture velocityInView:gesture.view];
+    // Avoid refreshing on vertical scrolling and other horizontal directions.
+    return velocity.x < 0 && fabs(velocity.x) >= fabs(velocity.y) * 1.1;
 }
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
@@ -537,6 +761,10 @@ static void CGApplyAppLayout(UIViewController *controller) {
                                  OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         [navigation installInController:controller];
     }
+    // Rebind after layout as Reynard can replace the active Gecko content view
+    // when its selected tab changes. Disables only its original right-edge
+    // Forward handler; the left-edge back recognizer remains installed.
+    [navigation bindRefreshInContentView:content];
 
     // Full-screen ChatGPT content with all Reynard browser chrome hidden.
     NSArray<NSLayoutConstraint *> *ours =
@@ -635,6 +863,9 @@ static void CGConfigurePreferences(void) {
     // This app has no browser toolbar. Disable Reynard's dynamic toolbar mode
     // so ToolbarController sends zero max/min/content bottom insets to Gecko.
     [prefs setBool:NO forKey:@"default.AppearanceSettings.scrollToHideToolbarEnabled"];
+    // Refresh is now a right-edge gesture, not Reynard's top-of-page pull.
+    // This only changes the rebranded ChatGPT app's own preference domain.
+    [prefs setBool:NO forKey:@"default.AppearanceSettings.pullToRefreshEnabled"];
     // Other sites remain prompt-based; chatgpt.com itself is explicitly
     // pre-allowed in Reynard's SitePermissionStore database.
     [prefs setObject:@"ask_to_allow" forKey:@"default.SitePermissionSettings.defaultMicrophonePermission"];
