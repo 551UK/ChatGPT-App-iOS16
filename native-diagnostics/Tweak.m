@@ -6,6 +6,7 @@
 #import <errno.h>
 #import <stdlib.h>
 #import <string.h>
+#import <sqlite3.h>
 
 static NSString *const CGRoot = @"/var/mobile/Documents/ChatGPTNativeDiagnostics";
 static const NSUInteger CGMaximumIPSBytes = 15000000;
@@ -49,6 +50,9 @@ static NSString *CGShort(NSString *s) {
 @property(nonatomic,assign) NSUInteger scans;
 @property(nonatomic,assign) NSUInteger samples;
 @property(nonatomic,assign) NSUInteger ticks;
+@property(nonatomic,assign) int lastGeckoPID;
+@property(nonatomic,strong) NSString *lastGeckoProcessType;
+@property(nonatomic,assign) BOOL childWasVisible;
 @property(nonatomic,strong) NSMutableDictionary<NSString *, NSString *> *knownReportStats;
 @property(nonatomic,strong) NSMutableSet<NSString *> *capturedHashes;
 + (instancetype)shared;
@@ -107,6 +111,114 @@ static NSString *CGShort(NSString *s) {
     kern_return_t k=task_info(mach_task_self(),MACH_TASK_BASIC_INFO,(task_info_t)&info,&count);
     return k==KERN_SUCCESS ? info.resident_size : 0;
 }
+// Read the saved Gecko session in READ-ONLY mode. We store route type,
+// hashed URL/title and session-blob length, never message or chat text.
+// One snapshot on foreground/process start/exit, not per message.
+- (NSString *)tabSnapshot {
+    NSArray<NSString *> *dirs=NSSearchPathForDirectoriesInDomains(
+        NSApplicationSupportDirectory,NSUserDomainMask,YES);
+    if (!dirs.count)return @"tab-store:no-app-support";
+    NSString *path=[dirs[0] stringByAppendingPathComponent:
+                      @"AppData/TabManagement/TabManagement"];
+    sqlite3 *db=NULL;
+    if (sqlite3_open_v2(path.UTF8String,&db,
+        SQLITE_OPEN_READONLY|SQLITE_OPEN_FULLMUTEX,NULL)!=SQLITE_OK) {
+        if (db)sqlite3_close(db);
+        return @"tab-store:unreadable";
+    }
+    sqlite3_busy_timeout(db,70);
+    sqlite3_stmt *statement=NULL;
+    NSString *answer=@"tab-store:no-selection";
+    const char *sql=
+        "SELECT t.url, t.title, length(t.tab_session_state),"
+        " t.is_private, s.selected_tab_mode "
+        "FROM tab_state s JOIN tabs t ON t.id=s.selected_regular_tab_id "
+        "WHERE s.id=1 LIMIT 1";
+    if (sqlite3_prepare_v2(db,sql,-1,&statement,NULL)==SQLITE_OK &&
+        sqlite3_step(statement)==SQLITE_ROW) {
+        const unsigned char *rawURL=sqlite3_column_text(statement,0);
+        const unsigned char *rawTitle=sqlite3_column_text(statement,1);
+        NSString *url=rawURL?[NSString stringWithUTF8String:(const char *)rawURL]:@"";
+        NSString *title=rawTitle?[NSString stringWithUTF8String:(const char *)rawTitle]:@"";
+        NSURLComponents *parts=[NSURLComponents componentsWithString:url];
+        NSString *route=parts.path?:@"";
+        NSString *kind=route.length<2?@"home":
+            ([route hasPrefix:@"/c/"]?@"conversation":@"other");
+        NSString *digest=CGDigest([url dataUsingEncoding:NSUTF8StringEncoding]);
+        NSString *titleDigest=CGDigest([title dataUsingEncoding:NSUTF8StringEncoding]);
+        int len=sqlite3_column_int(statement,2);
+        int priv=sqlite3_column_int(statement,3);
+        const unsigned char *mode=sqlite3_column_text(statement,4);
+        answer=[NSString stringWithFormat:
+            @"route=%@ url_hash=%@ title_hash=%@ restored_session_bytes=%d "
+            "private=%d mode=%s",
+            kind,[digest substringToIndex:MIN((NSUInteger)16,digest.length)],
+            [titleDigest substringToIndex:MIN((NSUInteger)16,titleDigest.length)],
+            len,priv,mode?(const char *)mode:"?"];
+    }
+    sqlite3_finalize(statement);
+    sqlite3_close(db);
+    return answer;
+}
+
+// Called by Reynard's actual GeckoRuntimeImpl for every newly spawned
+// child process (verified against its 0.19.0 Swift source). No polling.
+- (void)geckoChildStarted:(NSNotification *)note {
+    NSDictionary *info=note.userInfo?:@{};
+    NSNumber *value=info[@"pid"];
+    NSString *kind=info[@"processType"];
+    if (![value isKindOfClass:NSNumber.class])return;
+    int pid=value.intValue;
+    if (pid<=0)return;
+    dispatch_async(self.worker,^{
+        self.lastGeckoPID=pid;
+        self.lastGeckoProcessType=[kind isKindOfClass:NSString.class]?kind:@"unknown";
+        self.childWasVisible=YES;
+        [self appendEvent:@"gecko-child-start" extra:
+          [NSString stringWithFormat:@"pid=%d type=%@ %@",
+              pid,self.lastGeckoProcessType,[self tabSnapshot]]];
+        [self recordTrigger:@"gecko-child-start"];
+    });
+}
+
+// On saved tab changes or process events, preserve a minimal context
+// without recording full URLs or conversation content.
+- (void)recordTrigger:(NSString *)trigger {
+    NSString *line=[NSString stringWithFormat:@"%@\t%@\t%@\n",
+        CGWhen(),trigger,[self tabSnapshot]];
+    NSString *path=[self file:@"session-recovery.tsv"];
+    NSFileManager *fm=NSFileManager.defaultManager;
+    if (![fm fileExistsAtPath:path])
+        [fm createFileAtPath:path
+            contents:[@"utc\tevent\tsession_state\n"
+                dataUsingEncoding:NSUTF8StringEncoding] attributes:nil];
+    NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
+    if (!handle)return;
+    @try {
+        [handle seekToEndOfFile];
+        [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    } @catch(NSException *e) {
+        self.lastError=e.reason?:@"session recovery log failed";
+    } @finally { [handle closeFile]; }
+}
+
+- (NSString *)recentContext:(NSString *)filename maxLines:(NSUInteger)maxLines {
+    NSFileHandle *handle=[NSFileHandle fileHandleForReadingAtPath:[self file:filename]];
+    if (!handle)return @"(none)\n";
+    NSData *bytes=nil;
+    @try {
+        unsigned long long length=[handle seekToEndOfFile];
+        unsigned long long start=length>40000?length-40000:0;
+        [handle seekToFileOffset:start];
+        bytes=[handle readDataToEndOfFile];
+    } @catch (NSException *e) {} @finally { [handle closeFile]; }
+    NSString *raw=[[NSString alloc]initWithData:bytes encoding:NSUTF8StringEncoding]?:@"";
+    NSArray<NSString *> *rows=[raw componentsSeparatedByString:@"\n"];
+    NSUInteger from=rows.count>maxLines?rows.count-maxLines:0;
+    return [[rows subarrayWithRange:NSMakeRange(from,rows.count-from)]
+            componentsJoinedByString:@"\n"];
+}
+
 - (NSString *)scriptPath {
     return @"/var/jb/Applications/ChatGPT.app/Frameworks/GeckoView.framework/Frameworks/extensions/readerview/chatgpt-app-shell.js";
 }
@@ -125,7 +237,7 @@ static NSString *CGShort(NSString *s) {
     NSString *gecko=@"/var/jb/Applications/ChatGPT.app/Frameworks/GeckoView.framework/Info.plist";
     NSDictionary *g=[NSDictionary dictionaryWithContentsOfFile:gecko];
     return [NSString stringWithFormat:
-      @"ChatGPT Native Diagnostics v2.1\nCaptured UTC: %@\n"
+      @"ChatGPT Native Diagnostics v2.2\nCaptured UTC: %@\n"
       "Target bundle: %@\nCurrent bundle: %@\n"
       "App version: %@\nGeckoView version: %@\n"
       "iOS version: %@\nHardware model: %@\n"
@@ -242,12 +354,30 @@ static NSString *CGShort(NSString *s) {
         self.lastError=[NSString stringWithFormat:@"Failed writing %@",raw];return;
     }
     NSString *report=[self analyzeData:data name:source hash:hash];
+    // Attach the nearest available foreground/child-process and tab-restore
+    // events to each report. The original IPS remains byte-for-byte intact.
+    NSString *context=[NSString stringWithFormat:
+      @"
+
+--- Recent native process + app lifecycle ---
+%@"
+      "
+--- Recent Gecko session snapshots ---
+%@"
+      "
+--- Recent runtime samples (main app, not Helper memory) ---
+%@",
+      [self recentContext:@"events.log" maxLines:40],
+      [self recentContext:@"session-recovery.tsv" maxLines:20],
+      [self recentContext:@"timeline.tsv" maxLines:16]];
+    report=[report stringByAppendingString:context];
     [report writeToFile:analysis atomically:YES encoding:NSUTF8StringEncoding error:nil];
     [report writeToFile:[self file:@"last-crash-analysis.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
     [self.capturedHashes addObject:prefix];
     self.newCrashes++;
     self.knownCrashes=self.capturedHashes.count;
-    [self appendEvent:@"helper-crash-detected" extra:[NSString stringWithFormat:@"%@ %@",prefix,source]];
+    [self appendEvent:@"helper-crash-detected" extra:
+      [NSString stringWithFormat:@"%@ %@ %@",prefix,source,[self tabSnapshot]]];
 }
 - (void)scan:(BOOL)manual {
     if (self.scanning) return;
@@ -303,7 +433,7 @@ static NSString *CGShort(NSString *s) {
             self.scans++;
             self.lastScan=CGWhen();
             NSString *status=[NSString stringWithFormat:
-              @"ChatGPT Native Diagnostics v2.1\nLast scan UTC: %@\n"
+              @"ChatGPT Native Diagnostics v2.2\nLast scan UTC: %@\n"
               "Scan count: %lu\nChecked recent report filenames: %ld\nNew/changed readable reports: %ld\n"
               "Matched and archived custom Helper reports: %ld\n"
               "Reports newly captured this session: %ld\nLast error: %@\n"
@@ -355,9 +485,24 @@ static NSString *CGShort(NSString *s) {
     }
     NSString *state=UIApplication.sharedApplication.applicationState==UIApplicationStateActive?
        @"active":@"background-or-inactive";
+    NSString *candidates=[self helperCandidatePIDs];
+    if (self.lastGeckoPID>0 && ![candidates hasPrefix:@"unavailable"]) {
+        NSString *needle=[NSString stringWithFormat:@"%d",self.lastGeckoPID];
+        BOOL exists=[[candidates componentsSeparatedByString:@","] containsObject:needle];
+        if (self.childWasVisible && !exists) {
+            self.childWasVisible=NO;
+            [self appendEvent:@"gecko-child-disappeared" extra:
+              [NSString stringWithFormat:@"pid=%d type=%@ %@",
+                 self.lastGeckoPID,self.lastGeckoProcessType,[self tabSnapshot]]];
+            [self recordTrigger:@"gecko-child-disappeared"];
+            // The iOS crash reporter may write its IPS a few seconds after
+            // the process terminates; the existing 10s scan also continues.
+        }
+        if (exists) self.childWasVisible=YES;
+    }
     NSString *line=[NSString stringWithFormat:@"%@\t%@\t%llu\t%@\t%@\n",
         CGWhen(),state,(unsigned long long)[self memoryBytes],
-        [self helperCandidatePIDs],kind?:@"sample"];
+        candidates,kind?:@"sample"];
     NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
     if (!handle) { self.lastError=@"Unable to open timeline.tsv"; return; }
     @try { [handle seekToEndOfFile]; [handle writeData:
@@ -370,7 +515,7 @@ static NSString *CGShort(NSString *s) {
 - (void)writeHeartbeat:(NSString *)event {
     dispatch_async(self.worker, ^{
         NSString *s=[NSString stringWithFormat:
-          @"ChatGPT Native Diagnostics v2.1\nApp is alive: %@\n"
+          @"ChatGPT Native Diagnostics v2.2\nApp is alive: %@\n"
           "App foregrounded: %@\nResident memory bytes: %llu\n"
           "No daemon. Next heartbeat only while app foregrounded.\n",
           CGWhen(),[UIApplication sharedApplication].applicationState==UIApplicationStateActive?@"yes":@"no",
@@ -481,7 +626,8 @@ static NSString *CGShort(NSString *s) {
     // files asynchronously before sharing, avoiding a race on partial writes.
     NSMutableArray *paths=[NSMutableArray arrayWithArray:@[
       [self file:@"build-info.txt"],[self file:@"capture-status.txt"],
-      [self file:@"app-heartbeat.txt"],[self file:@"timeline.tsv"],[self file:@"events.log"],
+      [self file:@"app-heartbeat.txt"],[self file:@"timeline.tsv"],
+      [self file:@"session-recovery.tsv"],[self file:@"events.log"],
       [self file:@"events-previous.log"],[self file:@"last-crash-analysis.txt"]]];
     NSString *incident=[self file:@"incidents"];
     NSArray *names=[[[NSFileManager defaultManager]
@@ -553,6 +699,7 @@ static NSString *CGShort(NSString *s) {
     if ((self.ticks % 2) == 0) [self scan:NO];
 }
 - (void)active:(NSNotification *)note {
+    dispatch_async(self.worker, ^{ [self recordTrigger:@"app-active"]; });
     [self installButton];
     [self writeHeartbeat:@"app-active"];
     [self scan:NO];
@@ -561,6 +708,7 @@ static NSString *CGShort(NSString *s) {
               selector:@selector(tick:) userInfo:nil repeats:YES];
 }
 - (void)background:(NSNotification *)note {
+    dispatch_async(self.worker, ^{ [self recordTrigger:@"app-background"]; });
     [self writeHeartbeat:@"app-background"];
 }
 - (void)memoryWarning:(NSNotification *)note {
@@ -569,12 +717,15 @@ static NSString *CGShort(NSString *s) {
 - (void)start {
     if (![[[NSBundle mainBundle] bundleIdentifier] isEqualToString:CGTarget])return;
     NSNotificationCenter *n=NSNotificationCenter.defaultCenter;
+    [n addObserver:self selector:@selector(geckoChildStarted:)
+       name:@"GeckoRuntime.ChildProcessDidStart" object:nil];
     [n addObserver:self selector:@selector(active:)
        name:UIApplicationDidBecomeActiveNotification object:nil];
     [n addObserver:self selector:@selector(background:)
        name:UIApplicationDidEnterBackgroundNotification object:nil];
     [n addObserver:self selector:@selector(memoryWarning:)
        name:UIApplicationDidReceiveMemoryWarningNotification object:nil];
+    dispatch_async(self.worker, ^{ [self recordTrigger:@"diagnostics-started"]; });
     [self writeHeartbeat:@"diagnostics-started"];
     if (UIApplication.sharedApplication.applicationState==UIApplicationStateActive)
         [self active:nil];
