@@ -8,7 +8,6 @@ TWEAK_NAME = CGNativeDiag
 CGNativeDiag_FILES = Tweak.m
 CGNativeDiag_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
 CGNativeDiag_FRAMEWORKS = UIKit Foundation
-CGNativeDiag_LDFLAGS = -lcommonCrypto
 
 include $(THEOS)/makefiles/common.mk
 include $(THEOS_MAKE_PATH)/tweak.mk
