@@ -25,11 +25,13 @@
     ".cg-ios16-topbar-control.cg-ios16-home-topbar-control { transform: scale(1.40) !important; }",
     ".cg-ios16-topbar-control[data-cg-icon-role='sidebar'] { transform: scale(1.40) !important; }",
     ".cg-ios16-topbar-control[data-cg-icon-role='new'] { transform: scale(1.50) !important; }",
-    // v1.00: set actual SVG artwork black, including faded/disabled controls.
-    // Brightness(0) preserves transparent portions and the original SVG geometry.
-    ".cg-ios16-pure-black-header-control { color: #000000 !important; opacity: 1 !important; }",
-    ".cg-ios16-pure-black-header-control svg { color: #000000 !important; opacity: 1 !important; filter: brightness(0) !important; -webkit-filter: brightness(0) !important; }",
-    ".cg-ios16-pure-black-header-control svg * { opacity: 1 !important; }",
+    // v1.01: colour the two SVG icons themselves; do not rely on their
+    // containing button tags, role metadata or order.
+    ".cg-ios16-direct-black-svg { color: #000000 !important; opacity: 1 !important; filter: brightness(0) !important; -webkit-filter: brightness(0) !important; }",
+    ".cg-ios16-direct-black-svg * { opacity: 1 !important; }",
+    // The Sidebar glyph can be half-opacity on an intermediate span/button:
+    // override those icon-sized wrappers as well (not the overall header).
+    ".cg-ios16-direct-black-wrapper { opacity: 1 !important; filter: none !important; -webkit-filter: none !important; }",
     // This independent CSS translate does not affect sizing, layout or icon transforms.
     ".cg-ios16-sidebar-title-offset { translate: 10% 0 !important; }",
   ].join("\n");
@@ -616,49 +618,52 @@
     if (group) group.classList.add(marker);
   }
 
-  // v1.00: independently locate the actual TWO top-left toolbar icons.
-  // The DOM may swap sidebar/New Chat, use unlabeled buttons, or change SVG
-  // paths between conversations. Never depend on header-row role discovery
-  // or whether the sidebar title can be identified.
+  // v1.01: use actual SVG geometry, not the parent button's identity.
+  // In the user's screenshots the sidebar icon remains #878787 whether it is
+  // on the left OR right, while the adjacent pencil is #000000. That can be
+  // caused by a missing button match or intermediate wrapper opacity.
   function makeTopLeftHeaderIconsBlack() {
-    const marker = "cg-ios16-pure-black-header-control";
+    const svgMarker = "cg-ios16-direct-black-svg";
+    const wrapperMarker = "cg-ios16-direct-black-wrapper";
     const candidates = [];
     for (const svg of document.querySelectorAll("svg")) {
       const art = svg.getBoundingClientRect();
-      if (art.width < 16 || art.height < 16 ||
+      if (art.width < 15 || art.height < 15 ||
           art.width > 90 || art.height > 90 ||
-          art.top < -10 || art.top > 110 ||
+          art.top < -10 || art.top > 112 ||
           art.bottom > 155 ||
-          art.left < -10 || art.left > innerWidth * 0.49) continue;
-
-      const button = svg.closest("button, [role='button'], a[href]");
-      if (!button || button.querySelectorAll("svg").length !== 1) continue;
-      // Icon-only buttons sometimes contain visually hidden accessibility
-      // labels ("New chat", "Open sidebar"). Do NOT reject those text nodes.
-      // Exclude only the separate ChatGPT title/chevron menu itself.
-      if (/^ChatGPT$/i.test(normalizedText(button))) continue;
-      if (button.closest(".cg-ios16-sidebar-title-offset")) continue;
-      const rect = button.getBoundingClientRect();
-      if (rect.top < -12 || rect.top > 110 ||
-          rect.bottom < 0 || rect.width < 20 || rect.width > 105 ||
-          rect.height < 20 || rect.height > 105 ||
-          rect.left < -10 || rect.left > innerWidth * 0.49) continue;
-      const style = getComputedStyle(button);
-      if (style.display === "none" || style.visibility === "hidden") continue;
-      candidates.push({button, x: rect.left, y: rect.top});
+          art.left < -10 || art.left > innerWidth * 0.43) continue;
+      if (svg.closest(".cg-ios16-sidebar-title-offset")) continue;
+      const computed = getComputedStyle(svg);
+      if (computed.display === "none" || computed.visibility === "hidden") continue;
+      const control = svg.closest("button, [role='button'], a[href]");
+      if (control && /^(ChatGPT|Share)$/i.test(normalizedText(control))) continue;
+      candidates.push({svg, x: art.left, y: art.top});
     }
-    // Use geometry, not order-specific selectors: both actual icon controls
-    // are black, whether New Chat or Sidebar appears first.
+    // At the header's far left there are exactly two icons. Select by
+    // physical position so the pencil and sidebar can freely exchange sides.
     candidates.sort((a, b) => a.x - b.x || a.y - b.y);
-    const selected = new Set();
-    for (const candidate of candidates) {
-      if (selected.size === 2) break;
-      selected.add(candidate.button);
+    const chosen = new Set(candidates.slice(0, 2).map(item => item.svg));
+    const wrappers = new Set();
+    for (const svg of chosen) {
+      // Even a black SVG will render grey if a surrounding element has
+      // opacity:0.5. Unfade only its SMALL icon-sized ancestor wrappers.
+      for (let el = svg.parentElement, depth = 0;
+           el && depth < 7 && el !== document.body; el = el.parentElement, depth++) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 120 || r.height > 120 ||
+            r.top < -12 || r.top > 115) break;
+        wrappers.add(el);
+      }
     }
-    for (const old of document.querySelectorAll("." + marker)) {
-      if (!selected.has(old)) old.classList.remove(marker);
+    for (const old of document.querySelectorAll("." + svgMarker)) {
+      if (!chosen.has(old)) old.classList.remove(svgMarker);
     }
-    for (const button of selected) button.classList.add(marker);
+    for (const old of document.querySelectorAll("." + wrapperMarker)) {
+      if (!wrappers.has(old)) old.classList.remove(wrapperMarker);
+    }
+    for (const svg of chosen) svg.classList.add(svgMarker);
+    for (const wrapper of wrappers) wrapper.classList.add(wrapperMarker);
   }
 
   let revealed = false;
