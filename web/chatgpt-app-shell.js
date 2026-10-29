@@ -14,7 +14,7 @@
   // Mark only the exact New Chat / home route. Other ChatGPT pages retain
   // their own titles and original saved session state.
   function syncRestorableHomeState() {
-    if (!document.head || !/^chatgpt\\.com$/i.test(location.hostname))
+    if (!document.head || !/^chatgpt\.com$/i.test(location.hostname))
       return;
     const onHome = location.pathname === "/";
     if (onHome) {
