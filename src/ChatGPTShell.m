@@ -11,6 +11,7 @@
 
 static NSString *const CGBundleID = @"com.551uk.chatgptios16";
 static NSString *const CGHomeURL = @"https://chatgpt.com/";
+static NSString *const CGHomeRouteTitleMarker = @"ChatGPT - New Chat (iOS16)";
 static NSString *const CGStartupTitleMarker = @"__CG_STARTING__";
 static IMP CGOriginalControllerLoad = NULL;
 static IMP CGOriginalControllerLayout = NULL;
@@ -147,19 +148,46 @@ static void CGEnsureStartupTab(void) {
         return;
     }
 
-    // Prefer an existing ChatGPT conversation tab; don't make new tabs on
-    // every launch. Repair earlier builds that persisted only an empty tab.
+    // Respect the LAST SELECTED tab. Previously we always chose the
+    // highest-position ChatGPT tab, overwriting Reynard's saved selection on
+    // every launch. Only fall back to another tab if the selected one is
+    // unavailable or outside ChatGPT.
     NSString *chatID = nil;
+    NSString *savedTitle = nil;
     sqlite3_stmt *stmt = NULL;
-    const char *lookup = "SELECT id FROM tabs WHERE is_private = 0 AND "
-                         "(url LIKE 'https://chatgpt.com/%' OR url = 'https://chatgpt.com') "
-                         "ORDER BY position DESC LIMIT 1";
-    if (sqlite3_prepare_v2(db, lookup, -1, &stmt, NULL) == SQLITE_OK &&
+    const char *selected =
+      "SELECT t.id,t.title FROM tab_state s "
+      "JOIN tabs t ON t.id=s.selected_regular_tab_id "
+      "WHERE s.id=1 AND t.is_private=0 "
+      "AND (t.url LIKE 'https://chatgpt.com/%' OR t.url='https://chatgpt.com' "
+      "OR t.url LIKE 'https://www.chatgpt.com/%' "
+      "OR t.url LIKE 'https://chat.openai.com/%') LIMIT 1";
+    if (sqlite3_prepare_v2(db, selected, -1, &stmt, NULL) == SQLITE_OK &&
         sqlite3_step(stmt) == SQLITE_ROW) {
         const char *value = (const char *)sqlite3_column_text(stmt, 0);
+        const char *title = (const char *)sqlite3_column_text(stmt, 1);
         if (value) chatID = [NSString stringWithUTF8String:value];
+        if (title) savedTitle = [NSString stringWithUTF8String:title];
     }
     sqlite3_finalize(stmt);
+    stmt = NULL;
+    if (!chatID.length) {
+        const char *lookup =
+          "SELECT id,title FROM tabs WHERE is_private=0 "
+          "AND (url LIKE 'https://chatgpt.com/%' OR url='https://chatgpt.com' "
+          "OR url LIKE 'https://www.chatgpt.com/%' "
+          "OR url LIKE 'https://chat.openai.com/%') "
+          "ORDER BY position DESC LIMIT 1";
+        if (sqlite3_prepare_v2(db, lookup, -1, &stmt, NULL) == SQLITE_OK &&
+            sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *value = (const char *)sqlite3_column_text(stmt, 0);
+            const char *title = (const char *)sqlite3_column_text(stmt, 1);
+            if (value) chatID = [NSString stringWithUTF8String:value];
+            if (title) savedTitle = [NSString stringWithUTF8String:title];
+        }
+        sqlite3_finalize(stmt);
+        stmt = NULL;
+    }
     if (!chatID.length) {
         chatID = NSUUID.UUID.UUIDString;
         int position = 0;
@@ -180,7 +208,28 @@ static void CGEnsureStartupTab(void) {
         sqlite3_finalize(stmt);
     }
     if (chatID.length) {
-        stmt = NULL;
+        // ChatGPT's New Chat screen is a same-document SPA route. Gecko can
+        // persist the PREVIOUS conversation URL even though the page is now
+        // showing Home. The content script records the home-route intent via
+        // document.title, which Reynard already persists to this tab table.
+        // Only for that explicit marker, restore the root URL and discard a
+        // stale serialized Gecko session (which could reopen the old chat).
+        // Other pages keep their saved URL AND exact Gecko session state.
+        if ([savedTitle isEqualToString:CGHomeRouteTitleMarker]) {
+            const char *homeSQL =
+              "UPDATE tabs SET url=?, tab_session_state=NULL WHERE id=?";
+            if (sqlite3_prepare_v2(db, homeSQL, -1, &stmt, NULL) == SQLITE_OK) {
+                sqlite3_bind_text(stmt, 1, CGHomeURL.UTF8String, -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(stmt, 2, chatID.UTF8String, -1, SQLITE_TRANSIENT);
+                if (sqlite3_step(stmt) != SQLITE_DONE)
+                    NSLog(@"[ChatGPTGecko] Home screen restore update failed");
+                else
+                    NSLog(@"[ChatGPTGecko] Restoring ChatGPT New Chat home screen");
+            }
+            sqlite3_finalize(stmt);
+            stmt = NULL;
+        }
+
         const char *mark = "UPDATE tabs SET title=? WHERE id=?";
         if (sqlite3_prepare_v2(db, mark, -1, &stmt, NULL) == SQLITE_OK) {
             sqlite3_bind_text(stmt, 1, CGStartupTitleMarker.UTF8String, -1, SQLITE_TRANSIENT);
