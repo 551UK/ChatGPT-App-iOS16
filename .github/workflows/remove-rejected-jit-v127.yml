@@ -1,0 +1,33 @@
+name: Remove rejected Gecko JIT experiment branch
+
+on:
+  push:
+    branches: [native-crash-diagnostics-v22]
+    paths: ['.github/workflows/remove-rejected-jit-v127.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  remove-experiment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete rejected v1.27 JIT branch, preserve v1.26 and diagnostic source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          branch="gecko-jit-stability-v127"
+          if gh api "repos/$repo/branches/$branch" >/dev/null 2>&1; then
+            gh api --method DELETE "repos/$repo/git/refs/heads/$branch"
+            echo "DELETED $branch"
+          else
+            echo "Already absent: $branch"
+          fi
+          if gh api "repos/$repo/branches/$branch" >/dev/null 2>&1; then
+            echo "ERROR: rejected branch still exists" >&2
+            exit 1
+          fi
+          echo "Verified branch is absent"
