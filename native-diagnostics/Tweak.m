@@ -66,6 +66,14 @@ static NSString *CGShort(NSString *s) {
             [CGRoot stringByAppendingPathComponent:@"incidents"]
             withIntermediateDirectories:YES attributes:nil error:&error];
         if (error) _lastError=error.localizedDescription;
+        NSArray *existing=[[NSFileManager defaultManager] contentsOfDirectoryAtPath:
+            [CGRoot stringByAppendingPathComponent:@"incidents"] error:nil];
+        for (NSString *name in existing)
+            if ([name hasSuffix:@".original.ips"]) {
+                NSString *prefix=[name stringByReplacingOccurrencesOfString:@".original.ips" withString:@""];
+                if (prefix.length) [_capturedHashes addObject:prefix];
+            }
+        _knownCrashes=_capturedHashes.count;
     }
     return self;
 }
@@ -76,7 +84,7 @@ static NSString *CGShort(NSString *s) {
     NSString *line=[NSString stringWithFormat:@"%@\t%@\t%@\n",CGWhen(),event,CGShort(extra)];
     NSFileManager *fm=[NSFileManager defaultManager];
     NSDictionary *attr=[fm attributesOfItemAtPath:path error:nil];
-    if ([attr fileSize]>600000) {
+    if ([attr[NSFileSize] unsignedLongLongValue]>600000) {
         [fm removeItemAtPath:[self file:@"events-previous.log"] error:nil];
         [fm moveItemAtPath:path toPath:[self file:@"events-previous.log"] error:nil];
     }
@@ -221,8 +229,8 @@ static NSString *CGShort(NSString *s) {
 - (void)captureData:(NSData *)data sourceName:(NSString *)source {
     if (![self matchesReportData:data]) return;
     NSString *hash=CGDigest(data);
-    if ([self.capturedHashes containsObject:hash]) return;
     NSString *prefix=[hash substringToIndex:MIN(hash.length,20)];
+    if ([self.capturedHashes containsObject:prefix]) return;
     NSString *folder=[self file:@"incidents"];
     NSString *raw=[folder stringByAppendingPathComponent:[prefix stringByAppendingString:@".original.ips"]];
     NSString *analysis=[folder stringByAppendingPathComponent:[prefix stringByAppendingString:@".analysis.txt"]];
@@ -232,7 +240,7 @@ static NSString *CGShort(NSString *s) {
     NSString *report=[self analyzeData:data name:source hash:hash];
     [report writeToFile:analysis atomically:YES encoding:NSUTF8StringEncoding error:nil];
     [report writeToFile:[self file:@"last-crash-analysis.txt"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
-    [self.capturedHashes addObject:hash];
+    [self.capturedHashes addObject:prefix];
     self.newCrashes++;
     self.knownCrashes=self.capturedHashes.count;
     [self appendEvent:@"helper-crash-detected" extra:[NSString stringWithFormat:@"%@ %@",prefix,source]];
@@ -405,7 +413,8 @@ static NSString *CGShort(NSString *s) {
     });
 }
 - (void)share {
-    [self scan:YES];
+    // Export the latest completed snapshot; the Capture now action refreshes
+    // files asynchronously before sharing, avoiding a race on partial writes.
     NSMutableArray *paths=[NSMutableArray arrayWithArray:@[
       [self file:@"build-info.txt"],[self file:@"capture-status.txt"],
       [self file:@"app-heartbeat.txt"],[self file:@"events.log"],
