@@ -34,6 +34,9 @@
     ".cg-ios16-direct-black-wrapper { opacity: 1 !important; filter: none !important; -webkit-filter: none !important; }",
     // This independent CSS translate does not affect sizing, layout or icon transforms.
     ".cg-ios16-sidebar-title-offset { translate: 10% 0 !important; }",
+    // v1.08: Firefox-confirmed exact sidebar popover on mobile (75vw = 322.5px at 430px).
+    // Keep chat titles, buttons, navigation, header and scroll behavior untouched.
+    "@media (max-width: 799px) { #browser-sidebar-popover { width: 75vw !important; } }",
   ].join("\n");
 
   function installStyle() {
