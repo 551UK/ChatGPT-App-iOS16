@@ -932,6 +932,29 @@
     return true;
   }
 
+  // A stale .cg-ios16-solid-topbar class can survive React/Gecko's
+  // last-chat restore on an old or collapsed header. Only count a strip as
+  // restored when it covers the current, visible controls and has a
+  // meaningful painted cutoff. This is much cheaper than a full page rescan.
+  function hasUsableConversationHeaderBackground() {
+    if (window.location.pathname === "/" || window.location.pathname === "")
+      return true;
+    const header = document.querySelector(".cg-ios16-solid-topbar");
+    if (!header || !header.isConnected) return false;
+    const rect = header.getBoundingClientRect();
+    const cutoff = parseFloat(header.style.getPropertyValue("--cg-ios16-topbar-cutoff"));
+    if (rect.top > 105 || rect.bottom < 30 || rect.height < 42 ||
+        rect.width < innerWidth * 0.88 || !Number.isFinite(cutoff) ||
+        cutoff < 24 || cutoff > rect.height + 4) return false;
+    // An obsolete full-width container with a class but no active toolbar
+    // must not block a new header from receiving its white background.
+    if (!header.querySelector(
+      ".cg-ios16-left-header-size-stable, .cg-ios16-share-control-stable, " +
+      ".cg-ios16-topbar-control"
+    )) return false;
+    return true;
+  }
+
   function applyAppPresentation(updateHeader = true) {
     installStyle();
     dismissAppPromotion();
@@ -945,10 +968,11 @@
     // newly mounted header SVGs on ordinary updates WITHOUT touching the
     // control sizing, Share marker, or header row classification.
     makeTopLeftHeaderIconsBlack();
-    // A fresh conversation can replace the old header without a recognised
-    // toolbar mutation. Only recreate the background when it is missing;
-    // do not run header resizing on every streamed response.
-    if (!document.querySelector(".cg-ios16-solid-topbar"))
+    // A restored chat may retain an OLD background class on a collapsed
+    // toolbar. Check whether the CURRENT visible header has a painted
+    // cutoff, rather than testing only whether the class exists anywhere.
+    // Keep this recovery independent of Share and header sizing.
+    if (!hasUsableConversationHeaderBackground())
       restoreConversationHeaderBackground();
     hideSuggestion();
     hideDisclaimers();
@@ -959,12 +983,17 @@
   let pendingHeaderUpdate = false;
   function schedule(updateHeader = true) {
     pendingHeaderUpdate = pendingHeaderUpdate || updateHeader;
-    clearTimeout(timer);
+    // Do NOT clear/restart the timer on every mutation. On large restored
+    // chats the page can mutate continuously and a trailing-edge debounce
+    // never executes until the user interacts. A bounded 64ms throttle
+    // guarantees progress while limiting Gecko/DOM scans to <=16 per second.
+    if (timer !== null) return;
     timer = setTimeout(() => {
+      timer = null;
       const doHeader = pendingHeaderUpdate;
       pendingHeaderUpdate = false;
       applyAppPresentation(doHeader);
-    }, 16);
+    }, 64);
   }
 
   installStyle();
@@ -1004,8 +1033,18 @@
       recoverInkAndWhiteStrip();
       requestAnimationFrame(recoverInkAndWhiteStrip);
     });
-    for (const delay of [120, 360, 800]) {
-      inkRecoveryTimers.push(setTimeout(recoverInkAndWhiteStrip, delay));
+    // A last-opened chat can hydrate substantially later than pageshow or
+    // focus. Limited follow-ups also cover app resume without any typing.
+    // These are NOT repeating background timers or periodic polling.
+    for (const delay of [120, 360, 800, 1600, 3200]) {
+      inkRecoveryTimers.push(setTimeout(() => {
+        if (!hasUsableConversationHeaderBackground()) {
+          recoverInkAndWhiteStrip();
+        } else {
+          // Once the header is healthy, retain the lightweight ink refresh.
+          makeTopLeftHeaderIconsBlack();
+        }
+      }, delay));
     }
   }
 
