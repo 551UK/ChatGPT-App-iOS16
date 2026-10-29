@@ -1,0 +1,181 @@
+name: Build ChatGPT v1.24 - stock sidebar ChatGPT title
+
+on:
+  push:
+    branches: [sidebar-title-stock-v124]
+    paths:
+      - 'web/chatgpt-app-shell.js'
+      - 'scripts/package.sh'
+      - '.github/workflows/build-sidebar-title-stock-v124.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: chatgpt-stock-title-v124
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install packaging dependencies
+        run: |
+          brew install ldid dpkg
+          python3 -m pip install 'lief>=0.17,<0.18' 'Pillow>=10,<13'
+      - name: Set up Theos and iOS SDKs
+        uses: Randomblock1/theos-action@v1
+        with:
+          theos-sdks: https://github.com/theos/sdks
+          theos-sdks-branch: master
+      - name: Verify stock sidebar title only from v1.23
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin best-known-v1.23 --depth=1
+          # Confirm the v1.21 working gesture and presentation source is unchanged.
+          git diff --quiet origin/best-known-v1.23 HEAD -- src prefs scripts/rebrand.py scripts/inject.py scripts/icon.py
+          ! git diff --quiet origin/best-known-v1.23 HEAD -- web/chatgpt-app-shell.js
+          python3 - <<'PY_CARD'
+          from pathlib import Path
+          js = Path("web/chatgpt-app-shell.js").read_text()
+          for obsolete in ("cg-ios16-sidebar-title-offset",
+                           "positionSidebarTitleAndChevron",
+                           "translate: 10% 0",
+                           "move ONLY the combined ChatGPT title"):
+              assert obsolete not in js, f"Title positioning override remains: {obsolete}"
+          assert '#browser-sidebar-popover { width: 75vw' in js
+          assert "restoreMainHeaderLeftIconSizes(chosen);" in js
+          assert 'html body .cg-ios16-share-control-stable { transform: scale(1.30)' in js
+          assert "hasUsableConversationHeaderBackground()" in js
+          print("PASS: ChatGPT sidebar title stock; all good UI fixes preserved")
+          PY_CARD
+          node --check web/chatgpt-app-shell.js
+          bash -n scripts/package.sh
+          python3 - <<'PY_CHECK'
+          from pathlib import Path
+          js = Path("web/chatgpt-app-shell.js").read_text()
+          code = js.split("function restoreMainHeaderLeftIconSizes(chosenSvgs) {", 1)[1].split("\n  // v1.01", 1)[0]
+          assert "stabilizeTopActionBar" not in code
+          assert "keepHeaderShareEnlarged" not in code
+          assert "button.closest(panelSelector)" in code
+          assert "pair.length !== 2" in code
+          assert 'data-cg-left-header-icon' in code
+          assert 'restoreMainHeaderLeftIconSizes(chosen);' in js
+          assert "html body .cg-ios16-left-header-size-stable" in js
+          assert "makeTopLeftHeaderIconsBlack();" in js
+          assert "recoverHeaderInkAfterTransition()" in js
+          assert "schedule(mutationChangesHeader(mutations))" in js
+          assert '#browser-sidebar-popover { width: 75vw' in js
+          assert 'html body .cg-ios16-share-control-stable { transform: scale(1.30)' in js
+          assert js.count("HEADER_WHITE_BAR_TRIM_PX") == 3
+          assert "const HEADER_WHITE_BAR_TRIM_PX = 3;" in js
+          assert "Math.min(bestRect.height, Math.ceil(rowBottom - bestRect.top)) -" in js
+          assert "Math.min(r.height, Math.ceil(lastButtonBottom - r.top)) -" in js
+          # v1.19: keep the MAIN header button (not only an SVG that React
+          # can replace during scrolling) permanently black.
+          assert "html body .cg-ios16-left-header-size-stable { color: #000000 !important; opacity: 1 !important; }" in js
+          assert "html body .cg-ios16-left-header-size-stable svg { filter: brightness(0) !important;" in js
+          assert "html body .cg-ios16-left-header-size-stable svg * { opacity: 1 !important; }" in js
+          assert "html body .cg-ios16-topbar-control[data-cg-icon-role='sidebar'] svg" in js
+          assert "button.closest(panelSelector)" in js
+
+          assert "function hasUsableConversationHeaderBackground() {" in js
+          assert "if (!hasUsableConversationHeaderBackground())" in js
+          assert "if (timer !== null) return;" in js
+          assert "clearTimeout(timer);" not in js
+          assert "}, 64);" in js
+          assert "for (const delay of [120, 360, 800, 1600, 3200])" in js
+          assert "function restoreConversationHeaderBackground()" in js
+          assert "makeTopLeftHeaderIconsBlack();" in js
+          assert "positionSidebarTitleAndChevron" not in js
+          assert "cg-ios16-sidebar-title-offset" not in js
+          print("PASS: restore main header icon sizes without touching the sidebar dismiss control or Share")
+          PY_CHECK
+          grep -Fq 'manifest["version"] = "1.0.124"' scripts/package.sh
+          grep -Fq 'Version: 0.19.0-124' scripts/package.sh
+      - name: Package ChatGPT v1.24
+        run: bash scripts/package.sh
+      - name: Inspect rootless DEB and embedded styling script
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=dist/com.551uk.chatgptgecko_0.19.0-124_iphoneos-arm64.deb
+          test -s "$f"
+          test "$(dpkg-deb --field "$f" Package)" = "com.551uk.chatgptgecko"
+          test "$(dpkg-deb --field "$f" Version)" = "0.19.0-124"
+          test "$(dpkg-deb --field "$f" Architecture)" = "iphoneos-arm64"
+          python3 - <<'PY_CHECK'
+          import json, plistlib
+          from pathlib import Path
+          app=Path("build/work/unpacked/Payload/ChatGPT.app")
+          assert plistlib.loads((app/"Info.plist").read_bytes())["CFBundleIdentifier"]=="com.551uk.chatgptios16"
+          helper=app/"PlugIns/Reynard Helper.appex/Info.plist"
+          assert plistlib.loads(helper.read_bytes())["CFBundleIdentifier"]=="com.551uk.chatgptios16.Helper"
+          manifest=next(app.rglob("extensions/readerview/manifest.json"))
+          m=json.loads(manifest.read_text())
+          assert m["version"]=="1.0.124"
+          assert any("chatgpt-app-shell.js" in e.get("js",[]) for e in m.get("content_scripts",[]))
+          code=(manifest.parent/"chatgpt-app-shell.js").read_text()
+          assert "restoreMainHeaderLeftIconSizes(chosen);" in code
+          assert "cg-ios16-left-header-size-stable" in code
+          assert "const HEADER_WHITE_BAR_TRIM_PX = 3;" in code
+          assert code.count("HEADER_WHITE_BAR_TRIM_PX") == 3
+          assert "function restoreConversationHeaderBackground() {" in code
+          repair = code.split("function restoreConversationHeaderBackground() {", 1)[1].split("\n  function applyAppPresentation(", 1)[0]
+          assert "stabilizeTopActionBar()" not in repair
+          assert "cg-ios16-solid-topbar" in repair
+          assert 'window.location.pathname === "/"' in repair
+          assert "if (element.closest(panelSelector)) return false" in repair
+          recovery = code.split("function recoverHeaderInkAfterTransition() {", 1)[1].split("\n  function sidebarInteraction(", 1)[0]
+          assert "restoreConversationHeaderBackground();" in recovery
+          assert "recoverInkAndWhiteStrip();" in recovery
+          assert code.count("HEADER_WHITE_BAR_TRIM_PX") == 3
+          assert "Math.min(bestRect.height, Math.ceil(rowBottom - bestRect.top)) -" in code
+          assert "Math.min(r.height, Math.ceil(lastButtonBottom - r.top)) -" in code
+          assert "const HEADER_WHITE_BAR_TRIM_PX = 3;" in code
+          assert 'window.addEventListener("popstate"' in code
+          assert "html body .cg-ios16-left-header-size-stable { color: #000000 !important; opacity: 1 !important; }" in code
+          assert "html body .cg-ios16-left-header-size-stable svg { filter: brightness(0) !important;" in code
+          assert "html body .cg-ios16-topbar-control[data-cg-icon-role='sidebar'] svg" in code
+
+          assert "function hasUsableConversationHeaderBackground() {" in code
+          assert "if (!hasUsableConversationHeaderBackground())" in code
+          assert "if (timer !== null) return;" in code
+          assert "clearTimeout(timer);" not in code
+          assert "for (const delay of [120, 360, 800, 1600, 3200])" in code
+          assert "positionSidebarTitleAndChevron" not in code
+          assert "cg-ios16-sidebar-title-offset" not in code
+          print("PASS: Embedded Gecko script restores chat white bar separately from icon sizing")
+          prefs_source=Path("prefs/ChatGPTPrefs.m").read_text()
+          assert 'heading.text = refresh ? @"Swipe to Refresh" : @"Swipe Back";' in prefs_source
+          assert "Swipe left from the right edge to refresh the page, even in long chats." in prefs_source
+          assert 'NSString *symbol = refresh ? @"arrow.left.circle" : @"arrow.right";' in prefs_source
+          assert "Swipe right from the left edge to go back one page." in prefs_source
+          PY_CHECK
+          shasum -a 256 "$f"
+      - name: Upload verified DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-0.19.0-124-Stock-Title
+          path: dist/com.551uk.chatgptgecko_0.19.0-124_iphoneos-arm64.deb
+      - name: Publish optional testing release (if permitted)
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create chatgpt-stock-title-v124 \
+            dist/com.551uk.chatgptgecko_0.19.0-124_iphoneos-arm64.deb \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "ChatGPT v1.24 — Stock sidebar ChatGPT title" \
+            --notes "Experimental v1.24 from preserved best-known v1.23. Removes custom ChatGPT sidebar header title + chevron 10% horizontal shift entirely, returning the title to stock ChatGPT positioning. Keeps the 75%-width sidebar, black enlarged header icons, stable Share button, white header, native right-edge refresh, Swipe Back, all tweak Settings and Gecko app unchanged. v1.23 remains the best-known main release and rollback. Test on device."
