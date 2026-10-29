@@ -1,0 +1,130 @@
+name: Finalize v1.24 as sole latest release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/finalize-v124-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: chatgpt-finalize-v124-release
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify main and saved known-good v1.24
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin best-known-v1.24
+          git diff --quiet FETCH_HEAD HEAD -- src web prefs scripts
+          grep -Fq 'Version: 0.19.0-124' scripts/package.sh
+          grep -Fq 'manifest["version"] = "1.0.124"' scripts/package.sh
+          ! grep -Fq 'positionSidebarTitleAndChevron' web/chatgpt-app-shell.js
+          ! grep -Fq 'cg-ios16-sidebar-title-offset' web/chatgpt-app-shell.js
+          test "$(grep -c '^# ' README.md)" -eq 1
+          grep -Fxq '# Features' README.md
+
+      - name: Publish canonical v1.24 using verified existing DEB
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/v124"
+          DEB="$RUNNER_TEMP/v124/com.551uk.chatgptgecko_0.19.0-124_iphoneos-arm64.deb"
+          gh release download chatgpt-stock-title-v124 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'com.551uk.chatgptgecko_0.19.0-124_iphoneos-arm64.deb' \
+            --dir "$RUNNER_TEMP/v124"
+          test -s "$DEB"
+          test "$(stat -c%s "$DEB")" -eq 73460712
+          test "$(dpkg-deb --field "$DEB" Package)" = "com.551uk.chatgptgecko"
+          test "$(dpkg-deb --field "$DEB" Version)" = "0.19.0-124"
+          test "$(dpkg-deb --field "$DEB" Architecture)" = "iphoneos-arm64"
+          if gh release view v1.24 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Canonical v1.24 release exists; verifying existing asset"
+            gh release view v1.24 --repo "$GITHUB_REPOSITORY" --json assets \
+              --jq '.assets[].name' | grep -Fxq "$(basename "$DEB")"
+          else
+            gh release create v1.24 "$DEB" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "ChatGPT v1.24" \
+              --notes-file README.md \
+              --latest
+          fi
+          gh release edit v1.24 --repo "$GITHUB_REPOSITORY" --latest
+          gh release view v1.24 --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name' | grep -Fxq "$(basename "$DEB")"
+          echo "Verified canonical v1.24 download"
+
+      - name: Remove all older release DEBs and duplicate test release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          failures=0
+          while IFS= read -r tag; do
+            test -n "$tag" || continue
+            if test "$tag" = "v1.24"; then continue; fi
+            echo "Delete superseded release: $tag"
+            if ! gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes; then
+              echo "::error::Failed to remove release $tag"
+              failures=1
+            fi
+          done < <(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+                     --json tagName --jq '.[].tagName')
+          test "$failures" -eq 0
+          test "$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+                    --json tagName --jq '.[].tagName')" = "v1.24"
+
+      - name: Remove old DEB build artifacts and retain v1.24 backup
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          failures=0
+          while IFS=$'\t' read -r id label; do
+            test -n "$id" || continue
+            if test "$id" = "12879874605"; then
+              echo "Preserve v1.24 build artifact: $id"
+              continue
+            fi
+            echo "Remove obsolete build artifact: $id ($label)"
+            if ! gh api --method DELETE \
+              "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" --silent; then
+              echo "::warning::Failed to remove artifact $id"
+              failures=1
+            fi
+          done < <(gh api --paginate \
+                     "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+                     --jq '.artifacts[] | [.id,.name] | @tsv')
+          test "$failures" -eq 0
+
+      - name: Verify release, branches and repository
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v1.24 --repo "$GITHUB_REPOSITORY" --json \
+            name,isLatest,assets --jq '{name, isLatest, assets: [.assets[].name]}'
+          for branch in main best-known-v1.24 best-known-v1.23; do
+            gh api "repos/$GITHUB_REPOSITORY/branches/$branch" \
+              --jq '.name'
+          done
+          echo 'v1.24 release cleanup complete'
