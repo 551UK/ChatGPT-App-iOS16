@@ -21,6 +21,8 @@
     ".cg-ios16-hide { display: none !important; }",
     ".cg-ios16-solid-topbar { background-color: transparent !important; background-image: linear-gradient(to bottom, var(--cg-ios16-topbar-bg, #eeeef0) 0, var(--cg-ios16-topbar-bg, #eeeef0) var(--cg-ios16-topbar-cutoff, 0px), transparent var(--cg-ios16-topbar-cutoff, 0px), transparent 100%) !important; opacity: 1 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }",
     ".cg-ios16-topbar-control { transform: scale(1.30) !important; transform-origin: center center !important; }",
+    // Independent Share-button sizing: the sidebar may temporarily hide or rearrange the underlying header.
+    "html body .cg-ios16-share-control-stable { transform: scale(1.30) !important; transform-origin: center center !important; transition: none !important; animation: none !important; }",
     // Only homepage top-corner controls use 40%; chat header keeps 30%.
     ".cg-ios16-topbar-control.cg-ios16-home-topbar-control { transform: scale(1.40) !important; }",
     ".cg-ios16-topbar-control[data-cg-icon-role='sidebar'] { transform: scale(1.40) !important; }",
@@ -121,6 +123,37 @@
     return role === "new" || role === "sidebar" ? role : "";
   }
 
+  // Keep Share large independently of the top-row detector. Opening a mobile
+  // sidebar changes which controls appear visible; do not let that transient
+  // state unset the Share button's normal 1.30x size.
+  function keepHeaderShareEnlarged(allControls) {
+    for (const element of allControls) {
+      if (element.closest(
+        "#stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, " +
+        "#sidebar-header, aside, [role='dialog'], [aria-modal='true']"
+      )) continue;
+      const aria = (element.getAttribute("aria-label") || "").trim().toLowerCase();
+      const title = (element.getAttribute("title") || "").trim().toLowerCase();
+      // Read the own button label only, not a large ancestor's text.
+      const ownText = (element.textContent || "").trim().toLowerCase();
+      const isShare = ownText === "share" || aria === "share" ||
+        title === "share" || aria.startsWith("share ") || title.startsWith("share ");
+      if (!isShare) {
+        // React can reuse a button; do not leave a stale marker on an
+        // unrelated control, but do keep it through sidebar transitions.
+        if (element.classList.contains("cg-ios16-share-control-stable")) {
+          element.classList.remove("cg-ios16-share-control-stable");
+        }
+        continue;
+      }
+      const rect = element.getBoundingClientRect();
+      if (rect.width < 20 || rect.height < 20 ||
+          rect.top < -12 || rect.top >= Math.min(145, innerHeight * 0.24) ||
+          rect.left < 0 || rect.left >= innerWidth) continue;
+      element.classList.add("cg-ios16-share-control-stable");
+    }
+  }
+
   function stabilizeTopActionBar() {
     // The root route is the ChatGPT home page. Know this immediately from the
     // URL instead of waiting for the Chat/Work segmented control to render.
@@ -133,8 +166,13 @@
     const allControls = Array.from(document.querySelectorAll(
       "button, [role='button'], a"
     ));
+    keepHeaderShareEnlarged(allControls);
 
     const visibleTopControls = allControls.filter((element) => {
+      if (element.closest(
+        "#stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, " +
+        "#sidebar-header, aside, [role='dialog'], [aria-modal='true']"
+      )) return false;
       // v1.10: Never classify chat-history entries, message controls or
       // other iconless text links as top-header icons. When a sidebar list
       // scrolls past the first 140px, v1.08/v1.09 could mistakenly scale
@@ -158,10 +196,8 @@
     });
 
     if (visibleTopControls.length < 2) {
-      for (const old of document.querySelectorAll(".cg-ios16-topbar-control")) {
-        old.classList.remove("cg-ios16-topbar-control");
-        old.classList.remove("cg-ios16-home-topbar-control");
-      }
+      // Sidebar overlays temporarily hide the conversation header: never
+      // shrink buttons that are already identified as topbar controls.
       return false;
     }
 
@@ -244,7 +280,8 @@
 
     const homeHeader = isHomeRoute || hasHomeSwitcher;
     for (const old of document.querySelectorAll(".cg-ios16-topbar-control")) {
-      if (!scaleControls.includes(old)) {
+      if (!scaleControls.includes(old) &&
+          !old.classList.contains("cg-ios16-share-control-stable")) {
         old.classList.remove("cg-ios16-topbar-control");
         old.classList.remove("cg-ios16-home-topbar-control");
       }
