@@ -1,0 +1,40 @@
+name: Finalize stable ChatGPT 1.29
+on:
+  push:
+    branches: [promote-v129-stable]
+    paths: ['.github/workflows/finalize-v129.yml']
+permissions:
+  contents: write
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify unchanged released app and packaging
+        run: |
+          node --check web/chatgpt-app-shell.js
+          bash -n scripts/package.sh
+          bash -n scripts/build_header_v129.sh
+          git diff --exit-code ec100e837086082e0f1968b3ea6ec4f6961ec034 HEAD -- web src prefs scripts/patch_xul_active_stub.py
+          bash scripts/build_header_v129.sh
+      - name: Promote main and release, remove obsolete releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          test "$current" = "2c6301c22b8d7a332296640ce232046c991aeb95"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/main" -f sha="$GITHUB_SHA" -F force=false
+          gh release edit chatgpt-header-v129 --title "ChatGPT 1.29" --prerelease=false --latest --notes "ChatGPT 1.29. Includes persistent header icon sizing and black colour across chat navigation, white header recovery, and the v1.28 Gecko JIT garbage-collection repair. JIT remains enabled. Full-screen interface, gestures and session restoration retained."
+          gh release view chatgpt-header-v129 --json assets --jq '.assets[].name' | grep -Fx 'com.551uk.chatgptgecko_0.19.0-129_iphoneos-arm64.deb'
+          for id in 428540242 428526768 428110107 428474724 428031272 428016920; do
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
+          done
+          # Remove this one-time workflow from main, then freeze the stable branch.
+          blob=$(git rev-parse HEAD:.github/workflows/finalize-v129.yml)
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/contents/.github/workflows/finalize-v129.yml" -f branch=main -f sha="$blob" -f message="Remove completed v1.29 promotion workflow"
+          stable=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/heads/stable-v1.29 -f sha="$stable"
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | [.name,.prerelease,([.assets[].name]|join(","))] | @tsv'
