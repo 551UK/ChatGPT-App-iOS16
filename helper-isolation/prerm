@@ -1,0 +1,6 @@
+#!/bin/sh
+set -e
+case "${1:-}" in
+remove|deconfigure) /var/jb/usr/libexec/chatgpt-helper-choicy-config restore ;;
+esac
+exit 0
