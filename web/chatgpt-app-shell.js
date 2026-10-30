@@ -913,6 +913,7 @@
   let chromeTimer = null;
   let observedHeader = null;
   let recoveryTimers = [];
+  let headerAncestors = [];
   let lastChromeRoute = location.pathname;
   const HEADER_HOSTS = "header, [role='banner'], #page-header, #conversation-header-actions";
   const CHROME_EXCLUSIONS = "#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article";
@@ -973,7 +974,7 @@
     if (document.hidden) return;
     // Covers replacement of any intermediate ancestor, including a full-height
     // route container. Ignore unrelated siblings such as streamed message rows.
-    if (observedHeader && !observedHeader.isConnected) {
+    if (!observedHeader || !observedHeader.isConnected) {
       recoverHeaderInkAfterTransition();
       return;
     }
@@ -988,7 +989,14 @@
   });
   function observeHeaderOnly() {
     observedHeader = findLiveHeaderHost();
-    if (!observedHeader) return;
+    if (!observedHeader) {
+      // Keep direct structural watches through gaps of arbitrary duration.
+      // They will catch the new route/header even after finite retries finish.
+      headerAncestors = headerAncestors.filter(node => node.isConnected);
+      for (const node of headerAncestors)
+        headerParentObserver.observe(node, { childList: true });
+      return;
+    }
     headerObserver.observe(observedHeader, {
       childList: true, subtree: true, attributes: true,
       attributeFilter: ["class", "style", "aria-label", "title", "data-testid",
@@ -996,7 +1004,9 @@
     });
     // Direct-child observation is not a subtree subscription. In particular,
     // mutations inside the message list do not reach this observer.
+    headerAncestors = [];
     for (let node = observedHeader.parentElement; node; node = node.parentElement) {
+      headerAncestors.push(node);
       headerParentObserver.observe(node, { childList: true });
       if (node === document.body) break;
     }
