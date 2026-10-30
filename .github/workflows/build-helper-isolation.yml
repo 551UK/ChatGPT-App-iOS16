@@ -1,0 +1,83 @@
+name: Build ChatGPT Helper-only Choicy isolation
+
+on:
+  push:
+    branches: [chatgpt-helper-choicy-isolation-v100]
+    paths:
+      - 'helper-isolation/**'
+      - '.github/workflows/build-helper-isolation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install packaging tools
+        run: brew install ldid dpkg
+      - name: Compile native Helper-only preference configurator
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=build/helper-isolation/pkg
+          mkdir -p "$root/DEBIAN" "$root/var/jb/usr/libexec" dist
+          clang="$(xcrun --sdk iphoneos --find clang)"
+          sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          "$clang" -arch arm64 -isysroot "$sdk" -miphoneos-version-min=16.0 \
+            -fobjc-arc -O2 -framework Foundation \
+            helper-isolation/ChoicyHelperConfig.m \
+            -o "$root/var/jb/usr/libexec/chatgpt-helper-choicy-config"
+          ldid -S "$root/var/jb/usr/libexec/chatgpt-helper-choicy-config"
+          cp helper-isolation/control "$root/DEBIAN/control"
+          cp helper-isolation/postinst "$root/DEBIAN/postinst"
+          cp helper-isolation/prerm "$root/DEBIAN/prerm"
+          chmod 755 "$root/DEBIAN/postinst" "$root/DEBIAN/prerm" "$root/var/jb/usr/libexec/chatgpt-helper-choicy-config"
+          sh -n "$root/DEBIAN/postinst"
+          sh -n "$root/DEBIAN/prerm"
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path("helper-isolation/ChoicyHelperConfig.m").read_text()
+          for required in ("com.551uk.chatgptios16.Helper",
+              "com.551uk.chatgptios16", "com.opa334.choicyprefs/ReloadPrefs",
+              "tweakInjectionDisabled", "chown(", "restore"):
+              assert required in s, required
+          assert 'KMainID' in s and 'KHelperID' in s
+          print("PASS: target-specific reversible Choicy configuration")
+          PY
+          out=dist/com.551uk.chatgpt-helper-isolation_1.0.0_iphoneos-arm64.deb
+          dpkg-deb --root-owner-group -Zxz --build "$root" "$out"
+          test "$(dpkg-deb --field "$out" Package)" = "com.551uk.chatgpt-helper-isolation"
+          test "$(dpkg-deb --field "$out" Version)" = "1.0.0"
+          test "$(dpkg-deb --field "$out" Architecture)" = "iphoneos-arm64"
+          dpkg-deb -c "$out" | tee dist/package-files.txt
+          if grep -E '/Applications/ChatGPT.app/|/Library/MobileSubstrate/|\.dylib' dist/package-files.txt; then
+            echo "Unexpected packaged ChatGPT/Helper binaries or injected tweak" >&2
+            exit 1
+          fi
+          shasum -a 256 "$out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-Helper-Choicy-Isolation-1.0
+          path: dist/com.551uk.chatgpt-helper-isolation_1.0.0_iphoneos-arm64.deb
+          if-no-files-found: error
+      - name: Publish independent prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          tag="chatgpt-helper-choicy-isolation-v1.0"
+          file="dist/com.551uk.chatgpt-helper-isolation_1.0.0_iphoneos-arm64.deb"
+          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            gh release upload "$tag" "$file" --clobber --repo "$repo"
+          else
+            gh release create "$tag" "$file" --repo "$repo" --target chatgpt-helper-choicy-isolation-v100 --prerelease \
+              --title "ChatGPT Gecko Helper-only Choicy isolation" \
+              --notes "Separate rootless Choicy configuration package. Sets tweakInjectionDisabled=true only for com.551uk.chatgptios16.Helper and restores previous Helper setting on removal; no app or Gecko engine changes. Close/reopen ChatGPT after installing. On-device verification still needed."
+          fi
+          gh release view "$tag" --repo "$repo" --json assets --jq '.assets[].name' | grep -Fxq "$(basename "$file")"
