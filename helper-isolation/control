@@ -1,0 +1,10 @@
+Package: com.551uk.chatgpt-helper-isolation
+Name: ChatGPT Helper Tweak Isolation
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Depends: com.opa334.choicy
+Section: Tweaks
+Priority: optional
+Maintainer: 551UK
+Author: 551UK
+Description: Stop third-party tweaks injecting only into ChatGPT's Reynard Helper through Choicy, preserving Gecko JIT and main-app tweaks. Restores previous setting on uninstall.
