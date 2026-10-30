@@ -87,7 +87,7 @@ scripts.append({
 manifest["content_scripts"] = scripts
 # Bump the built-in extension version so Gecko refreshes the installed copy
 # for users upgrading from the previous ChatGPT package.
-manifest["version"] = "1.0.126"
+manifest["version"] = "1.0.129"
 manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 print("Injected ChatGPT app presentation content script into", manifest_path)
 PY
@@ -132,6 +132,9 @@ sign_binary() {
         ldid -S "$exe"
     fi
 }
+# v1.29 includes the v1.28 active-stub GC repair on a clean upstream XUL.
+python3 "$ROOT/scripts/patch_xul_active_stub.py" "$APP/Frameworks/XUL"
+sign_binary "$APP/Frameworks/XUL" nothing
 sign_binary "$APP/Frameworks/ChatGPTShell.dylib" nothing
 for PLUG in "$APP"/PlugIns/*.appex; do
     [ -d "$PLUG" ] || continue
@@ -213,7 +216,7 @@ cp "$ROOT/prefs/Resources/icon.png" \
 cat > "$PKG/DEBIAN/control" <<'CONTROL'
 Package: com.551uk.chatgptgecko
 Name: ChatGPT
-Version: 0.19.0-126
+Version: 0.19.0-129
 Architecture: iphoneos-arm64
 Maintainer: 551UK
 Author: 551UK
@@ -236,7 +239,7 @@ if command -v uicache >/dev/null 2>&1; then uicache -a || true; fi
 exit 0
 POSTRM
 chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/postrm"
-DEB="$DIST/com.551uk.chatgptgecko_0.19.0-126_iphoneos-arm64.deb"
+DEB="$DIST/com.551uk.chatgptgecko_0.19.0-129_iphoneos-arm64.deb"
 dpkg-deb --root-owner-group -Zxz --build "$PKG" "$DEB"
 dpkg-deb --field "$DEB" Package Architecture
 ls -lh "$DEB"
