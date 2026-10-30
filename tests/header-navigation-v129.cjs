@@ -64,6 +64,18 @@ textarea{position:fixed;bottom:10px;left:20px}
  },controls());
  await verify("whole route replacement before recovery");
  await page.waitForTimeout(200);await verify("whole route settled");
+ // A detached header can return long after bounded retries expire.
+ await page.evaluate(()=>document.querySelector("#page-header").remove());
+ await page.waitForTimeout(3500);
+ await page.evaluate(html=>{
+  const wrapper=document.createElement("div");
+  wrapper.innerHTML='<header id="page-header">'+html+'</header>';
+  document.querySelector("#route").prepend(wrapper);
+ },controls());
+ await page.waitForTimeout(160);
+ await verify("header restored after long structural gap");
+ assert(await page.$eval("#page-header button",b=>b.classList.contains("cg-ios16-left-header-size-stable")),
+   "structural recovery must rediscover header, not just rely on CSS");
  // No pair prerequisite: one left icon can hydrate late into a connected header.
  await page.evaluate(html=>{
   history.pushState(null,"","/c/two");document.title="Second chat";
