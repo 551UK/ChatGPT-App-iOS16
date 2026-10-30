@@ -38,10 +38,18 @@
     document.documentElement?.removeAttribute(PREPARE_ATTR);
   }, 1400);
 
+  // v1.29: CSS applies before marker discovery, including replacement controls.
   const styleText = [
+    "html body :is(header, [role='banner'], #page-header, #conversation-header-actions) :is(button, a, [role='button']):is([aria-label*='sidebar' i], [title*='sidebar' i], [data-testid*='sidebar' i]):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article) *):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article)) { transform: scale(1.40) !important; transform-origin: center !important; }",
+    "html body :is(header, [role='banner'], #page-header, #conversation-header-actions) :is(button, a, [role='button']):is([aria-label*='new chat' i], [title*='new chat' i], [aria-label*='compose' i], [data-testid*='new-chat' i]):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article) *):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article)) { transform: scale(1.50) !important; transform-origin: center !important; }",
+    "html body :is(header, [role='banner'], #page-header, #conversation-header-actions) :is(button, a, [role='button']):is(:is([aria-label*='sidebar' i], [title*='sidebar' i], [data-testid*='sidebar' i]), :is([aria-label*='new chat' i], [title*='new chat' i], [aria-label*='compose' i], [data-testid*='new-chat' i])):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article) *):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article)) { color: #000 !important; opacity: 1 !important; transition: none !important; animation: none !important; }",
+    "html body :is(header, [role='banner'], #page-header, #conversation-header-actions) :is(button, a, [role='button']):is(:is([aria-label*='sidebar' i], [title*='sidebar' i], [data-testid*='sidebar' i]), :is([aria-label*='new chat' i], [title*='new chat' i], [aria-label*='compose' i], [data-testid*='new-chat' i])):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article) *):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article)) :is(span, svg) { color: #000 !important; opacity: 1 !important; }",
+    "html body :is(header, [role='banner'], #page-header, #conversation-header-actions) :is(button, a, [role='button']):is(:is([aria-label*='sidebar' i], [title*='sidebar' i], [data-testid*='sidebar' i]), :is([aria-label*='new chat' i], [title*='new chat' i], [aria-label*='compose' i], [data-testid*='new-chat' i])):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article) *):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article)) svg { filter: brightness(0) !important; -webkit-filter: brightness(0) !important; }",
+    "html body :is(header, [role='banner'], #page-header, #conversation-header-actions) :is(button, a, [role='button']):is(:is([aria-label*='sidebar' i], [title*='sidebar' i], [data-testid*='sidebar' i]), :is([aria-label*='new chat' i], [title*='new chat' i], [aria-label*='compose' i], [data-testid*='new-chat' i])):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article) *):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article)) svg * { opacity: 1 !important; }",
+    "html body :is(header, [role='banner'], #page-header):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article) *):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article)) { background-color: transparent !important; background-image: linear-gradient(to bottom, #fff 0, #fff var(--cg-ios16-topbar-cutoff, calc(100% - 3px)), transparent var(--cg-ios16-topbar-cutoff, calc(100% - 3px))) !important; opacity: 1 !important; backdrop-filter: none !important; }",
     "html[data-cg-ios16-preparing='1'] { visibility: hidden !important; }",
     ".cg-ios16-hide { display: none !important; }",
-    ".cg-ios16-solid-topbar { background-color: transparent !important; background-image: linear-gradient(to bottom, var(--cg-ios16-topbar-bg, #eeeef0) 0, var(--cg-ios16-topbar-bg, #eeeef0) var(--cg-ios16-topbar-cutoff, 0px), transparent var(--cg-ios16-topbar-cutoff, 0px), transparent 100%) !important; opacity: 1 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }",
+    ".cg-ios16-solid-topbar { background-color: transparent !important; background-image: linear-gradient(to bottom, var(--cg-ios16-topbar-bg, #fff) 0, var(--cg-ios16-topbar-bg, #eeeef0) var(--cg-ios16-topbar-cutoff, 64px), transparent var(--cg-ios16-topbar-cutoff, 64px), transparent 100%) !important; opacity: 1 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }",
     ".cg-ios16-topbar-control { transform: scale(1.30) !important; transform-origin: center center !important; }",
     // Independent Share-button sizing: the sidebar may temporarily hide or rearrange the underlying header.
     "html body .cg-ios16-share-control-stable { transform: scale(1.30) !important; transform-origin: center center !important; transition: none !important; animation: none !important; }",
@@ -899,50 +907,38 @@
     return true;
   }
 
-  // v1.26: HEADER-ONLY event-driven styling.
-  // There must never be a document-wide subtree MutationObserver here:
-  // React streaming thousands of message nodes is unrelated to header ink.
-  // Once we tag a header button, CSS handles SVG/icon repaint automatically.
+
+  // v1.29: only header descendants and direct children along its ancestor
+  // path are observed. Message-feed descendants are never subscribed.
   let chromeTimer = null;
   let observedHeader = null;
-  let observedHeaderParent = null;
-  let pendingChromeRefresh = false;
+  let recoveryTimers = [];
+  let lastChromeRoute = location.pathname;
+  const HEADER_HOSTS = "header, [role='banner'], #page-header, #conversation-header-actions";
+  const CHROME_EXCLUSIONS = "#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article";
 
   function findLiveHeaderHost() {
     const controls = document.querySelectorAll(
       ".cg-ios16-left-header-size-stable, .cg-ios16-topbar-control, " +
       ".cg-ios16-share-control-stable"
     );
-    const choices = [];
     for (const button of controls) {
-      if (!button.isConnected || button.closest(
-        "#browser-sidebar-popover, #stage-popover-sidebar, " +
-        "#stage-slideover-sidebar, #sidebar-container, " +
-        "[data-message-author-role], [data-testid^='conversation-turn']"
-      )) continue;
+      if (!button.isConnected || button.closest(CHROME_EXCLUSIONS)) continue;
       for (let node = button.parentElement, depth = 0;
            node && depth < 8 && node !== document.body;
            node = node.parentElement, depth++) {
         const r = node.getBoundingClientRect();
         if (r.top < -28 || r.top > 105 || r.height < 38 || r.height > 170 ||
-            r.width < innerWidth * 0.76 ||
-            r.width > innerWidth * 1.12) continue;
-        // Never observe a whole message feed or composer parent as a header.
+            r.width < innerWidth * 0.76 || r.width > innerWidth * 1.12) continue;
         if (node.querySelector(
           "[data-message-author-role], [data-testid^='conversation-turn'], " +
           "textarea, [contenteditable='true']"
         )) continue;
-        choices.push({ node, depth, height: r.height });
-        break;
+        return node;
       }
     }
-    choices.sort((a, b) => a.depth - b.depth || a.height - b.height);
-    if (choices.length) return choices[0].node;
-    // When a brand-new page has no marked buttons, the top-level semantic
-    // header is a safe, strictly bounded observer target.
-    for (const node of document.querySelectorAll(
-      "#page-header, #conversation-header-actions, header, [role='banner']"
-    )) {
+    for (const node of document.querySelectorAll(HEADER_HOSTS)) {
+      if (node.closest(CHROME_EXCLUSIONS)) continue;
       const r = node.getBoundingClientRect();
       if (r.top < -28 || r.top > 105 || r.height < 38 || r.height > 170 ||
           r.width < innerWidth * 0.76) continue;
@@ -952,67 +948,105 @@
     return null;
   }
 
+  function markSemanticHeaderControls() {
+    for (const host of document.querySelectorAll(HEADER_HOSTS)) {
+      if (host.closest(CHROME_EXCLUSIONS)) continue;
+      const rect = host.getBoundingClientRect();
+      if (rect.top < -28 || rect.top > 105 || rect.height > 170) continue;
+      for (const button of host.querySelectorAll("button, a, [role='button']")) {
+        if (button.closest(CHROME_EXCLUSIONS)) continue;
+        const role = iconIdentity(button);
+        if (!role) continue;
+        const r = button.getBoundingClientRect();
+        if (r.left < -12 || r.right > innerWidth * 0.44) continue;
+        // Independent discovery: one icon may mount before the other.
+        button.classList.add("cg-ios16-left-header-size-stable");
+        button.setAttribute("data-cg-left-header-icon", role);
+      }
+    }
+  }
+
   const headerObserver = new MutationObserver(() => {
-    // Only direct header subtree changes are observed. No message stream work.
     if (!document.hidden) scheduleChromeRefresh();
   });
-  const headerParentObserver = new MutationObserver(() => {
-    // If React replaces the entire header, its immediate parent reports it.
-    if (!document.hidden) scheduleChromeRefresh();
+  const headerParentObserver = new MutationObserver(mutations => {
+    if (document.hidden) return;
+    // Covers replacement of any intermediate ancestor, including a full-height
+    // route container. Ignore unrelated siblings such as streamed message rows.
+    if (observedHeader && !observedHeader.isConnected) {
+      recoverHeaderInkAfterTransition();
+      return;
+    }
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType === 1 && node.matches?.(HEADER_HOSTS)) {
+          scheduleChromeRefresh();
+          return;
+        }
+      }
+    }
   });
   function observeHeaderOnly() {
-    const next = findLiveHeaderHost();
-    if (next === observedHeader && next?.isConnected) return;
-    headerObserver.disconnect();
-    headerParentObserver.disconnect();
-    observedHeader = next;
-    observedHeaderParent = next?.parentElement || null;
-    if (observedHeader) {
-      headerObserver.observe(observedHeader, { childList: true, subtree: true });
-      // A parent observer must never accidentally watch a large chat feed.
-      // Only watch parents whose geometry is itself a compact top toolbar.
-      if (observedHeaderParent && observedHeaderParent !== document.body) {
-        const p = observedHeaderParent.getBoundingClientRect();
-        if (p.top < 115 && p.height <= 185 && p.height >= 38)
-          headerParentObserver.observe(observedHeaderParent, { childList: true });
-      }
+    observedHeader = findLiveHeaderHost();
+    if (!observedHeader) return;
+    headerObserver.observe(observedHeader, {
+      childList: true, subtree: true, attributes: true,
+      attributeFilter: ["class", "style", "aria-label", "title", "data-testid",
+                       "data-cg-left-header-icon", "data-cg-icon-role"]
+    });
+    // Direct-child observation is not a subtree subscription. In particular,
+    // mutations inside the message list do not reach this observer.
+    for (let node = observedHeader.parentElement; node; node = node.parentElement) {
+      headerParentObserver.observe(node, { childList: true });
+      if (node === document.body) break;
     }
   }
 
   function refreshChrome() {
     if (document.hidden) return;
-    installStyle();
-    dismissAppPromotion();
-    stabilizeTopActionBar();
-    makeTopLeftHeaderIconsBlack();
-    if (!hasUsableConversationHeaderBackground())
-      restoreConversationHeaderBackground();
-    hideSuggestion();
-    hideDisclaimers();
-    if (document.body) revealCleanPage();
-    observeHeaderOnly();
+    // Own class/style writes must not generate another observer pass.
+    headerObserver.disconnect();
+    headerParentObserver.disconnect();
+    try {
+      installStyle();
+      dismissAppPromotion();
+      markSemanticHeaderControls();
+      stabilizeTopActionBar();
+      makeTopLeftHeaderIconsBlack();
+      if (!hasUsableConversationHeaderBackground())
+        restoreConversationHeaderBackground();
+      hideSuggestion();
+      hideDisclaimers();
+      if (document.body) revealCleanPage();
+    } finally {
+      observeHeaderOnly();
+    }
   }
 
   function scheduleChromeRefresh() {
-    if (document.hidden) return;
-    pendingChromeRefresh = true;
-    if (chromeTimer !== null) return;
-    chromeTimer = setTimeout(() => {
+    if (document.hidden || chromeTimer !== null) return;
+    // Repair before the next paint, rather than exposing an 80ms stale header.
+    chromeTimer = requestAnimationFrame(() => {
       chromeTimer = null;
-      if (!pendingChromeRefresh || document.hidden) return;
-      pendingChromeRefresh = false;
       refreshChrome();
-    }, 80);
+    });
   }
 
-  // v1.25's last-page/home marker is independent of chat mutations.
-  // Observe only the <title> text and direct replacement of that title node,
-  // never the full document or the unrelated <head> stylesheet mutations.
+  function checkChromeRoute() {
+    if (lastChromeRoute === location.pathname) return;
+    lastChromeRoute = location.pathname;
+    recoverHeaderInkAfterTransition();
+  }
+
   let observedTitle = null;
-  const titleTextObserver = new MutationObserver(syncRestorableHomeState);
+  const titleTextObserver = new MutationObserver(() => {
+    syncRestorableHomeState();
+    checkChromeRoute();
+  });
   const titleNodeObserver = new MutationObserver(() => {
     observePageTitleOnly();
     syncRestorableHomeState();
+    checkChromeRoute();
   });
   function observePageTitleOnly() {
     if (!document.head) return;
@@ -1024,48 +1058,36 @@
         childList: true, characterData: true, subtree: true
       });
     }
-    // This is a direct-child watcher of head, not a subtree observer.
     titleNodeObserver.disconnect();
     titleNodeObserver.observe(document.head, { childList: true });
     syncRestorableHomeState();
   }
 
-  // One top-level structural watcher detects replacement of the entire app
-  // root and portal promotions. It does NOT watch descendant message changes.
-  const appRootObserver = new MutationObserver((mutations) => {
+  const appRootObserver = new MutationObserver(mutations => {
     if (document.hidden) return;
-    if (observedHeader && !observedHeader.isConnected) {
-      scheduleChromeRefresh();
+    if (!observedHeader || !observedHeader.isConnected) {
+      recoverHeaderInkAfterTransition();
       return;
     }
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
-        if (node.nodeType !== 1) continue;
-        if (node.matches?.(
+        if (node.nodeType === 1 && node.matches?.(
           "[role='dialog'], [aria-modal='true'], #browser-sidebar-popover"
-        )) { scheduleChromeRefresh(); return; }
+        )) { recoverHeaderInkAfterTransition(); return; }
       }
     }
   });
   function startHeaderOnlyMonitoring() {
-    // A single initialization scan is expected; not one scan per message.
     refreshChrome();
     observePageTitleOnly();
-    if (document.body)
-      appRootObserver.observe(document.body, { childList: true });
-    // When React hydrates the topbar after document_start, retry only while
-    // its header host is still absent. These are bounded startup retries.
-    for (const delay of [240, 850, 1600]) {
-      setTimeout(() => {
-        if (!document.hidden && (!observedHeader || !observedHeader.isConnected))
-          refreshChrome();
-      }, delay);
-    }
+    if (document.body) appRootObserver.observe(document.body, { childList: true });
+    recoverHeaderInkAfterTransition();
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", startHeaderOnlyMonitoring, { once: true });
   } else {
-    startHeaderOnlyMonitoring();
+    // Defer until the recovery state below has been initialized.
+    queueMicrotask(startHeaderOnlyMonitoring);
   }
 
   // Ensure Home is recorded before background suspension and after SPA
@@ -1086,23 +1108,20 @@
   // geometry/replace its SVG without producing one of the watched text
   // mutations. Refresh ONLY the ink/opacity classes after the UI settles.
   // Do not call stabilizeTopActionBar here: Share must keep its v1.13 size.
-  let lastChromeRecoveryAt = 0;
-  let resumeVerificationTimer = null;
+
+  let lastChromeRecoveryAt = -Infinity;
   function recoverHeaderInkAfterTransition() {
     if (document.hidden) return;
-    // iOS can emit pageshow, focus and visibilitychange in one resume burst.
-    // Collapse them into a single event-driven pass. CSS keeps marked icons
-    // black without continuously scanning during chat catch-up.
-    const now = Date.now();
-    if (now - lastChromeRecoveryAt < 200) return;
-    lastChromeRecoveryAt = now;
     scheduleChromeRefresh();
-    if (resumeVerificationTimer !== null) clearTimeout(resumeVerificationTimer);
-    resumeVerificationTimer = setTimeout(() => {
-      resumeVerificationTimer = null;
-      if (!document.hidden && (!observedHeader || !observedHeader.isConnected))
-        scheduleChromeRefresh();
-    }, 450);
+    const now = Date.now();
+    if (now - lastChromeRecoveryAt < 150) return;
+    lastChromeRecoveryAt = now;
+    recoveryTimers.forEach(clearTimeout);
+    // Always check after a navigation, even if an old/empty header remains
+    // connected. Finite retries cover delayed hydration, not ongoing polling.
+    recoveryTimers = [100, 300, 700, 1500, 3000].map(delay => setTimeout(() => {
+      if (!document.hidden) scheduleChromeRefresh();
+    }, delay));
   }
   function sidebarInteraction(event) {
     const target = event.target?.nodeType === 1 ?
@@ -1132,7 +1151,10 @@
   }
 
   document.addEventListener("click", event => {
-    if (sidebarInteraction(event)) recoverHeaderInkAfterTransition();
+    const link = event.target?.closest?.("a[href]");
+    let routeLink = false;
+    try { routeLink = !!link && new URL(link.href, location.href).origin === location.origin; } catch (_) {}
+    if (routeLink || sidebarInteraction(event)) recoverHeaderInkAfterTransition();
   }, true);
   // Some sidebar views dismiss by a gesture rather than a normal click.
   document.addEventListener("transitionend", event => {
