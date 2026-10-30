@@ -1,0 +1,41 @@
+name: Build v1.29 persistent header navigation
+on:
+  push:
+    branches: [fix-header-navigation-v129]
+    paths:
+      - 'web/chatgpt-app-shell.js'
+      - 'tests/header-navigation-v129.cjs'
+      - 'scripts/build_header_v129.sh'
+      - '.github/workflows/build-header-v129.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Firefox test runtime
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps firefox
+      - name: Test header lifecycle in Firefox
+        run: |
+          node --check web/chatgpt-app-shell.js
+          node tests/header-navigation-v129.cjs
+      - name: Package exact v1.28 engine with v1.29 presentation
+        run: bash scripts/build_header_v129.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-v1.29-Header-Navigation
+          path: dist/*.deb
+          if-no-files-found: error
+      - name: Publish test build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create chatgpt-header-v129 dist/*.deb --target "$GITHUB_SHA" --prerelease --title "ChatGPT v1.29 — Header navigation fix" --notes-file docs/header-v129.md
