@@ -1,0 +1,40 @@
+name: Build v1.28 active-stub GC repair candidate
+on:
+  push:
+    branches: [fix-jit-active-stub-v128]
+    paths:
+      - 'scripts/patch_xul_active_stub.py'
+      - 'scripts/build_jit_v128.sh'
+      - 'tests/jit-active-stub-v128.py'
+      - '.github/workflows/build-jit-v128.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install tools
+        run: |
+          python3 -m pip install unicorn==2.1.4
+          mkdir -p "$HOME/.local/bin"
+          curl -fL --retry 3 https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus7/ldid_linux_x86_64 -o "$HOME/.local/bin/ldid"
+          chmod +x "$HOME/.local/bin/ldid"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Build and test pinned binary repair
+        run: bash scripts/build_jit_v128.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPT-v1.28-JIT-GC-Repair-Test
+          path: dist/*.deb
+          if-no-files-found: error
+      - name: Publish test build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create chatgpt-jit-gc-v128 dist/*.deb --target "$GITHUB_SHA" --prerelease --title "ChatGPT v1.28 — JIT GC repair test" --notes-file docs/jit-v128.md
