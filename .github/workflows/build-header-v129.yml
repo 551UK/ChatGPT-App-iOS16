@@ -8,6 +8,9 @@ on:
       - 'scripts/build_header_v129.sh'
       - '.github/workflows/build-header-v129.yml'
   workflow_dispatch:
+concurrency:
+  group: chatgpt-header-v129
+  cancel-in-progress: true
 permissions:
   contents: write
 jobs:
@@ -38,4 +41,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create chatgpt-header-v129 dist/*.deb --target "$GITHUB_SHA" --prerelease --title "ChatGPT v1.29 — Header navigation fix" --notes-file docs/header-v129.md
+          current=$(gh api "repos/$GITHUB_REPOSITORY/branches/fix-header-navigation-v129" --jq .commit.sha)
+          if [ "$current" != "$GITHUB_SHA" ]; then echo "Newer source exists; skipping stale publication"; exit 0; fi
+          if gh release view chatgpt-header-v129 >/dev/null 2>&1; then
+            gh release upload chatgpt-header-v129 dist/*.deb --clobber
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/chatgpt-header-v129" -f sha="$GITHUB_SHA" -F force=true
+            gh release edit chatgpt-header-v129 --prerelease --notes-file docs/header-v129.md
+          else
+            gh release create chatgpt-header-v129 dist/*.deb --target "$GITHUB_SHA" --prerelease --title "ChatGPT v1.29 — Header navigation fix" --notes-file docs/header-v129.md
+          fi
