@@ -1,0 +1,24 @@
+name: Validate ChatGPT 1.30
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          node --check web/chatgpt-app-shell.js
+          bash -n scripts/package.sh scripts/verify_release_v130.sh
+          python3 -m py_compile scripts/*.py
+      - run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps firefox
+          node tests/header-appearance-v130.cjs
