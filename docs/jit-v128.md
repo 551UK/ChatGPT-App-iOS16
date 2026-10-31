@@ -1,4 +1,4 @@
-ChatGPT v1.28 is a targeted **test candidate** for the recurring Reynard Helper
+# Crash repair retained in v1.30\n\nHistorical investigation notes for the active-stub repair introduced in v1.28.\n\nChatGPT v1.28 is a targeted **test candidate** for the recurring Reynard Helper
 crash. Device stability is not yet confirmed.
 
 Two ARM64 branches restore Mozilla's original active-stub-only tracing in
@@ -24,8 +24,8 @@ Evidence and scope:
   faults, then check 18 patched cases (normal/fallback/null active stubs with
   null/stale/cyclic next pointers). Trace callees are mocked: these are control
   flow checks, not a complete Gecko runtime or garbage-collector test.
-- The v1.26 header regression test is retained. Real-device testing is required
+- Current header regression coverage is in tests/header-appearance-v130.cjs. Real-device testing is required
   to establish whether this resolves all observed crashes; a shared crash
   location alone does not prove the initiating lifetime bug.
 
-The stable v1.26 release and main branch are preserved.
+The current source and release are v1.30.
