@@ -12,4 +12,4 @@ Standalone, full-screen Gecko-powered ChatGPT app for iOS 16 and earlier.
 
 Current release: **1.30** — adaptive Appearance header colour and a strip aligned with the button edges.
 
-[Download 1.30](https://github.com/551UK/ChatGPT-App-iOS16/releases/tag/chatgpt-appearance-v130) · [Build and verification](docs/build.md)
+[Download 1.30](https://github.com/551UK/ChatGPT-App-iOS16/releases/tag/chatgpt-appearance-v130) ·
