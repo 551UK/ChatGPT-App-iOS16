@@ -15,6 +15,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Include workflow added through GitHub connection
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git merge origin/main --no-edit
       - name: Clean obsolete files and update package version
         run: |
           python3 - <<'PY'
@@ -25,6 +31,12 @@ jobs:
           for p in Path('tests').glob('*.cjs'):
               if p.name != 'header-appearance-v130.cjs': p.unlink()
           Path('docs/header-v129.md').unlink()
+          p=Path('docs/jit-v128.md')
+          s=p.read_text()
+          s='# Crash repair retained in v1.30\\n\\nHistorical investigation notes for the active-stub repair introduced in v1.28.\\n\\n'+s
+          s=s.replace('- The v1.26 header regression test is retained.', '- Current header regression coverage is in tests/header-appearance-v130.cjs.')
+          s=s.replace('The stable v1.26 release and main branch are preserved.', 'The current source and release are v1.30.')
+          p.write_text(s)
           p=Path('scripts/package.sh')
           s=p.read_text().replace('1.0.129','1.0.130').replace('0.19.0-129','0.19.0-130').replace('# v1.29 includes','# v1.30 includes')
           p.write_text(s)
