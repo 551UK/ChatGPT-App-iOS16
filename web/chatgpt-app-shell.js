@@ -5,8 +5,8 @@
   // ChatGPT still owns messages, uploads, account state and voice.
   const STYLE_ID = "cg-ios16-app-style";
   const PREPARE_ATTR = "data-cg-ios16-preparing";
-  // Subtle white-strip reduction only; independent of icon and Share size.
-  const HEADER_WHITE_BAR_TRIM_PX = 3;
+  // Paint through the button edge without adding padding or changing tap targets.
+  const HEADER_WHITE_BAR_TRIM_PX = 0;
   const CG_HOME_ROUTE_TITLE_MARKER = "ChatGPT - New Chat (iOS16)";
 
   // Reynard saves document.title to its native tab database, including for
@@ -46,10 +46,10 @@
     "html body :is(header, [role='banner'], #page-header, #conversation-header-actions) :is(button, a, [role='button']):is(:is([aria-label*='sidebar' i], [title*='sidebar' i], [data-testid*='sidebar' i]), :is([aria-label*='new chat' i], [title*='new chat' i], [aria-label*='compose' i], [data-testid*='new-chat' i])):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article) *):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article)) :is(span, svg) { color: #000 !important; opacity: 1 !important; }",
     "html body :is(header, [role='banner'], #page-header, #conversation-header-actions) :is(button, a, [role='button']):is(:is([aria-label*='sidebar' i], [title*='sidebar' i], [data-testid*='sidebar' i]), :is([aria-label*='new chat' i], [title*='new chat' i], [aria-label*='compose' i], [data-testid*='new-chat' i])):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article) *):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article)) svg { filter: brightness(0) !important; -webkit-filter: brightness(0) !important; }",
     "html body :is(header, [role='banner'], #page-header, #conversation-header-actions) :is(button, a, [role='button']):is(:is([aria-label*='sidebar' i], [title*='sidebar' i], [data-testid*='sidebar' i]), :is([aria-label*='new chat' i], [title*='new chat' i], [aria-label*='compose' i], [data-testid*='new-chat' i])):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article) *):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article)) svg * { opacity: 1 !important; }",
-    "html body :is(header, [role='banner'], #page-header):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article) *):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article)) { background-color: transparent !important; background-image: linear-gradient(to bottom, #fff 0, #fff var(--cg-ios16-topbar-cutoff, calc(100% - 3px)), transparent var(--cg-ios16-topbar-cutoff, calc(100% - 3px))) !important; opacity: 1 !important; backdrop-filter: none !important; }",
+    "html body :is(header, [role='banner'], #page-header):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article) *):not(:is(#browser-sidebar-popover, #stage-popover-sidebar, #stage-slideover-sidebar, #sidebar-container, #sidebar-header, nav[aria-label='Chat history'], aside, [role='dialog'], [aria-modal='true'], [data-message-author-role], [data-testid^='conversation-turn'], article)) { background-color: transparent !important; background-image: linear-gradient(to bottom, var(--cg-ios16-topbar-bg, #fff) 0, var(--cg-ios16-topbar-bg, #fff) var(--cg-ios16-topbar-cutoff, 100%), transparent var(--cg-ios16-topbar-cutoff, 100%)) !important; opacity: 1 !important; backdrop-filter: none !important; }",
     "html[data-cg-ios16-preparing='1'] { visibility: hidden !important; }",
     ".cg-ios16-hide { display: none !important; }",
-    ".cg-ios16-solid-topbar { background-color: transparent !important; background-image: linear-gradient(to bottom, var(--cg-ios16-topbar-bg, #fff) 0, var(--cg-ios16-topbar-bg, #eeeef0) var(--cg-ios16-topbar-cutoff, 64px), transparent var(--cg-ios16-topbar-cutoff, 64px), transparent 100%) !important; opacity: 1 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }",
+    ".cg-ios16-solid-topbar { background-color: transparent !important; background-image: linear-gradient(to bottom, var(--cg-ios16-topbar-bg, #fff) 0, var(--cg-ios16-topbar-bg, #fff) var(--cg-ios16-topbar-cutoff, 64px), transparent var(--cg-ios16-topbar-cutoff, 64px), transparent 100%) !important; opacity: 1 !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }",
     ".cg-ios16-topbar-control { transform: scale(1.30) !important; transform-origin: center center !important; }",
     // Independent Share-button sizing: the sidebar may temporarily hide or rearrange the underlying header.
     "html body .cg-ios16-share-control-stable { transform: scale(1.30) !important; transform-origin: center center !important; transition: none !important; animation: none !important; }",
@@ -979,6 +979,7 @@
       return;
     }
     for (const mutation of mutations) {
+      if (mutation.type === "attributes") { scheduleChromeRefresh(); return; }
       for (const node of mutation.addedNodes) {
         if (node.nodeType === 1 && node.matches?.(HEADER_HOSTS)) {
           scheduleChromeRefresh();
@@ -994,7 +995,7 @@
       // They will catch the new route/header even after finite retries finish.
       headerAncestors = headerAncestors.filter(node => node.isConnected);
       for (const node of headerAncestors)
-        headerParentObserver.observe(node, { childList: true });
+        headerParentObserver.observe(node, { childList: true, attributes: true, attributeFilter: ["class", "style", "data-theme"] });
       return;
     }
     headerObserver.observe(observedHeader, {
@@ -1007,8 +1008,43 @@
     headerAncestors = [];
     for (let node = observedHeader.parentElement; node; node = node.parentElement) {
       headerAncestors.push(node);
-      headerParentObserver.observe(node, { childList: true });
-      if (node === document.body) break;
+      headerParentObserver.observe(node, { childList: true, attributes: true, attributeFilter: ["class", "style", "data-theme"] });
+    }
+  }
+
+  // Resolve the live Appearance colour from the controls themselves. Ignore
+  // our painted header (a gradient) so a previous colour cannot feed back.
+  // Transparent controls naturally fall back to the page background.
+  function syncAppearanceHeader() {
+    const host = findLiveHeaderHost();
+    if (!host) return;
+    const buttons = Array.from(host.querySelectorAll("button, a, [role='button']"))
+      .filter(button => {
+        if (button.closest(CHROME_EXCLUSIONS)) return false;
+        const r = button.getBoundingClientRect();
+        return r.width >= 18 && r.height >= 18 && r.top >= -12 &&
+          r.top < 105 && r.right > 0 && r.left < innerWidth &&
+          getComputedStyle(button).visibility !== "hidden";
+      });
+    if (!buttons.length) return;
+    // Prefer a filled control; transparent SVG buttons are not colour sources.
+    const probe = buttons.find(button => {
+      const c = parseComputedColor(getComputedStyle(button).backgroundColor);
+      return c && c.a > 0;
+    }) || buttons[0];
+    const colour = renderedBackgroundColor(probe);
+    const bottom = Math.max(...buttons.map(b => b.getBoundingClientRect().bottom));
+    const hosts = new Set([host]);
+    for (let node = host.parentElement; node && node !== document.body;
+         node = node.parentElement) {
+      if (node.matches(HEADER_HOSTS + ", .cg-ios16-solid-topbar")) hosts.add(node);
+    }
+    for (const node of hosts) {
+      const r = node.getBoundingClientRect();
+      if (r.height > 170 || r.width < innerWidth * .72) continue;
+      node.style.setProperty("--cg-ios16-topbar-bg", colour);
+      node.style.setProperty("--cg-ios16-topbar-cutoff", `${Math.max(0, bottom - r.top)}px`);
+      node.classList.add("cg-ios16-solid-topbar");
     }
   }
 
@@ -1025,6 +1061,7 @@
       makeTopLeftHeaderIconsBlack();
       if (!hasUsableConversationHeaderBackground())
         restoreConversationHeaderBackground();
+      syncAppearanceHeader();
       hideSuggestion();
       hideDisclaimers();
       if (document.body) revealCleanPage();
@@ -1087,7 +1124,24 @@
       }
     }
   });
+  const appearanceStylesObserver = new MutationObserver(mutations => {
+    if (mutations.some(m => m.target.nodeType === 1 && m.target.closest?.("style, link") ||
+        m.target.parentElement?.closest("style") ||
+        [...m.addedNodes, ...m.removedNodes].some(n => n.nodeType === 1 && n.matches("style, link"))))
+      scheduleChromeRefresh();
+  });
+  function appearanceInput(event) {
+    if (event.target.matches?.("input[type='color']") ||
+        event.target.closest?.("[role='dialog'], [aria-modal='true']"))
+      scheduleChromeRefresh();
+  }
+  document.addEventListener("input", appearanceInput, true);
+  document.addEventListener("change", appearanceInput, true);
   function startHeaderOnlyMonitoring() {
+    if (document.head) appearanceStylesObserver.observe(document.head, {
+      childList: true, subtree: true, characterData: true, attributes: true,
+      attributeFilter: ["href", "media", "disabled"]
+    });
     refreshChrome();
     observePageTitleOnly();
     if (document.body) appRootObserver.observe(document.body, { childList: true });
