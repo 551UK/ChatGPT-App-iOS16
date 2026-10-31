@@ -1,0 +1,31 @@
+name: Keep only ChatGPT 1.30 release
+on:
+  push:
+    branches: [release-cleanup-v130]
+    paths: ['.github/workflows/cleanup-v130.yml']
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify 1.30 and remove obsolete releases and tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: 551UK/ChatGPT-App-iOS16
+        run: |
+          set -euo pipefail
+          gh api repos/$GH_REPO/releases/tags/chatgpt-appearance-v130 > /tmp/release.json
+          jq -e '.assets | length == 1' /tmp/release.json
+          jq -e '.assets[0].name == "com.551uk.chatgptgecko_0.19.0-130_iphoneos-arm64.deb" and .assets[0].digest == "sha256:b96fc3db45d65e91cc8c404a1e0f3d266b190809e10d1ba0fabe0805f8546bb3"' /tmp/release.json
+          gh release edit chatgpt-appearance-v130 --title "ChatGPT 1.30" --prerelease=false --latest
+          gh api --paginate repos/$GH_REPO/releases --jq '.[] | select(.tag_name != "chatgpt-appearance-v130") | .id' > /tmp/old-releases
+          while read -r id; do
+            gh api --method DELETE repos/$GH_REPO/releases/$id
+          done < /tmp/old-releases
+          gh api --paginate repos/$GH_REPO/git/matching-refs/tags/ --jq '.[] | select(.ref != "refs/tags/chatgpt-appearance-v130") | .ref' > /tmp/old-tags
+          while read -r ref; do
+            gh api --method DELETE "repos/$GH_REPO/git/${ref}"
+          done < /tmp/old-tags
+          gh api repos/$GH_REPO/releases --jq '.[].tag_name'
+          gh api repos/$GH_REPO/git/matching-refs/tags/ --jq '.[].ref'
