@@ -98,6 +98,9 @@
     (document.head || document.documentElement).appendChild(style);
   }
 
+  // Install before DOMContentLoaded so semantic loading headers never paint white.
+  installStyle();
+
   function normalizedText(element) {
     return (element && element.textContent ? element.textContent : "")
       .replace(/\s+/g, " ")
@@ -131,11 +134,12 @@
     };
   }
 
-  function renderedBackgroundColor(element) {
+  function renderedBackgroundColor(element, ignoredHeader = null) {
     let accumulated = { r: 0, g: 0, b: 0, a: 0 };
     let node = element;
 
     for (let depth = 0; node && depth < 12; depth++, node = node.parentElement) {
+      if (node === ignoredHeader || node.classList.contains("cg-ios16-solid-topbar")) continue;
       const color = parseComputedColor(getComputedStyle(node).backgroundColor);
       if (color && color.a > 0) {
         accumulated = compositeColor(accumulated, color);
@@ -353,20 +357,8 @@
       if (homeHeader) element.classList.add("cg-ios16-home-topbar-control");
     }
 
-    // Home page: keep ChatGPT's native white header completely untouched,
-    // including the partial loading state before Chat/Work exists in the DOM.
-    // The left/right icon controls above are enlarged to 1.40x, but do
-    // not sample a transparent icon as a background colour and do not apply
-    // the custom solid-topbar treatment here.
-    if (isHomeRoute || hasHomeSwitcher) {
-      for (const old of document.querySelectorAll(".cg-ios16-solid-topbar")) {
-        old.classList.remove("cg-ios16-solid-topbar");
-        old.style.removeProperty("--cg-ios16-topbar-bg");
-        old.style.removeProperty("--cg-ios16-topbar-cutoff");
-        delete old.dataset.cgIos16SolidTopbar;
-      }
-      return true;
-    }
+    // Home sizing is handled above; syncAppearanceHeader owns its background.
+    if (isHomeRoute || hasHomeSwitcher) return true;
 
     // Locate the real full-width top header from the detected row, rather than
     // walking upward from Share. This works on chat variants where Share is
@@ -946,6 +938,23 @@
       if (node.querySelector("[data-message-author-role], textarea")) continue;
       return node;
     }
+    // Home can hydrate as an ordinary div with only the Chat/Work tabs.
+    // Recognise the pair and its full-width row without waiting for left icons.
+    if (location.pathname === "/") {
+      const tabs = Array.from(document.querySelectorAll("button, [role='tab'], [role='button']"))
+        .filter(b => !b.closest(CHROME_EXCLUSIONS) && /^(chat|work)$/i.test(normalizedText(b)));
+      for (const tab of tabs) {
+        for (let node = tab.parentElement, depth = 0; node && depth < 6 &&
+             node !== document.body; node = node.parentElement, depth++) {
+          const r = node.getBoundingClientRect();
+          if (r.top < -28 || r.top > 105 || r.height < 38 || r.height > 170 ||
+              r.width < innerWidth * .76) continue;
+          if (node.querySelector("textarea, [contenteditable='true'], [data-message-author-role]")) continue;
+          if (tabs.some(b => node.contains(b) && /^chat$/i.test(normalizedText(b))) &&
+              tabs.some(b => node.contains(b) && /^work$/i.test(normalizedText(b)))) return node;
+        }
+      }
+    }
     return null;
   }
 
@@ -954,7 +963,7 @@
       if (host.closest(CHROME_EXCLUSIONS)) continue;
       const rect = host.getBoundingClientRect();
       if (rect.top < -28 || rect.top > 105 || rect.height > 170) continue;
-      for (const button of host.querySelectorAll("button, a, [role='button']")) {
+      for (const button of host.querySelectorAll("button, a, [role='button'], [role='tab']")) {
         if (button.closest(CHROME_EXCLUSIONS)) continue;
         const role = iconIdentity(button);
         if (!role) continue;
@@ -1018,7 +1027,7 @@
   function syncAppearanceHeader() {
     const host = findLiveHeaderHost();
     if (!host) return;
-    const buttons = Array.from(host.querySelectorAll("button, a, [role='button']"))
+    const buttons = Array.from(host.querySelectorAll("button, a, [role='button'], [role='tab']"))
       .filter(button => {
         if (button.closest(CHROME_EXCLUSIONS)) return false;
         const r = button.getBoundingClientRect();
@@ -1036,11 +1045,13 @@
       return;
     }
     // Prefer a filled control; transparent SVG buttons are not colour sources.
-    const probe = buttons.find(button => {
+    const colourButtons = buttons.filter(b =>
+      !/^(chat|work)$/i.test(normalizedText(b)) && b.getAttribute("role") !== "tab");
+    const probe = colourButtons.find(button => {
       const c = parseComputedColor(getComputedStyle(button).backgroundColor);
       return c && c.a > 0;
-    }) || buttons[0];
-    const colour = renderedBackgroundColor(probe);
+    }) || colourButtons[0] || host.parentElement;
+    const colour = renderedBackgroundColor(probe, host);
     const bottom = Math.max(...buttons.map(b => b.getBoundingClientRect().bottom));
     const hosts = new Set([host]);
     for (let node = host.parentElement; node && node !== document.body;
@@ -1075,6 +1086,7 @@
       if (document.body) revealCleanPage();
     } finally {
       observeHeaderOnly();
+      if (observedHeader) startupHeaderObserver.disconnect();
     }
   }
 
@@ -1155,7 +1167,15 @@
     if (document.body) appRootObserver.observe(document.body, { childList: true });
     recoverHeaderInkAfterTransition();
   }
+  const startupHeaderObserver = new MutationObserver(() => {
+    if (observedHeader) startupHeaderObserver.disconnect();
+    else scheduleChromeRefresh();
+  });
   if (document.readyState === "loading") {
+    startupHeaderObserver.observe(document, {childList: true, subtree: true});
+    // This discovery subscription is temporary, never a message-stream watcher.
+    setTimeout(() => startupHeaderObserver.disconnect(), 10000);
+    queueMicrotask(startHeaderOnlyMonitoring);
     document.addEventListener("DOMContentLoaded", startHeaderOnlyMonitoring, { once: true });
   } else {
     // Defer until the recovery state below has been initialized.
