@@ -92,10 +92,12 @@
 
   function installStyle() {
     if (document.getElementById(STYLE_ID)) return;
+    const target = document.head || document.documentElement;
+    if (!target) return; // document_start may precede the HTML root.
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = styleText;
-    (document.head || document.documentElement).appendChild(style);
+    target.appendChild(style);
   }
 
   // Install before DOMContentLoaded so semantic loading headers never paint white.
