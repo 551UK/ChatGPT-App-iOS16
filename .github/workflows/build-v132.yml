@@ -2,7 +2,7 @@ name: Verify ChatGPT 1.32
 on:
   push:
     branches: [fix-home-startup-v132]
-    paths: ['web/chatgpt-app-shell.js', 'tests/**', '.github/workflows/build-v132.yml']
+    paths: ['web/chatgpt-app-shell.js', 'tests/**', 'scripts/**', '.github/workflows/build-v132.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -31,4 +31,4 @@ jobs:
           node --check web/chatgpt-app-shell.js
           node tests/home-startup-v132.cjs
           node tests/header-appearance-v130.cjs
-          bash scripts/verify_release_v132.sh
+          bash scripts/verify_release_v130.sh
