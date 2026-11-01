@@ -3,11 +3,11 @@ const fs=require('node:fs');
 const assert=require('node:assert/strict');
 (async()=>{
  const browser=await firefox.launch();
+ let release;
  try {
  const page=await browser.newPage({viewport:{width:430,height:932}});
  const source=fs.readFileSync(process.env.HEADER_SOURCE||'web/chatgpt-app-shell.js','utf8');
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
- let release;
  const blocked=new Promise(r=>release=r);
  await page.route('http://home.test/slow.js',async r=>{await blocked;await r.fulfill({body:'',contentType:'text/javascript'});});
  await page.route('http://home.test/',r=>r.fulfill({contentType:'text/html',body:`<!doctype html><html><head><title>Home</title><style>
@@ -31,5 +31,5 @@ const assert=require('node:assert/strict');
  assert((await page.$eval('.home-header',h=>getComputedStyle(h).backgroundImage)).includes('rgb(223, 234, 255)'));
  assert.deepEqual(errors,[]);
  console.log('PASS: div Home header with Chat/Work and no sidebar adapts before DOMContentLoaded; selected white tab ignored; late sidebar colour updates');
- } finally {await browser.close();}
+ } finally {release?.(); await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1)});
