@@ -5,10 +5,20 @@ on:
     paths: ['web/chatgpt-app-shell.js', 'tests/header-appearance-v130.cjs', 'tests/home-startup-v132.cjs', '.github/workflows/build-v132.yml']
 permissions:
   contents: write
+  actions: write
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 8
     steps:
+      - name: Stop superseded test runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: 551UK/ChatGPT-App-iOS16
+        run: |
+          gh api "repos/$GH_REPO/actions/runs?branch=fix-home-startup-v132&per_page=30" --jq '.workflow_runs[] | select(.status != "completed") | .id' | while read -r id; do
+            if [ "$id" != "$GITHUB_RUN_ID" ]; then gh api --method POST "repos/$GH_REPO/actions/runs/$id/cancel" || true; fi
+          done
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -61,6 +71,7 @@ jobs:
           GH_REPO: 551UK/ChatGPT-App-iOS16
         run: |
           set -euo pipefail
+          test "$(gh api repos/$GH_REPO/git/ref/heads/fix-home-startup-v132 --jq .object.sha)" = "$GITHUB_SHA"
           gh release create chatgpt-v132 dist/*.deb --target "$GITHUB_SHA" --title "ChatGPT 1.32" --notes "" --latest
           gh api repos/$GH_REPO/releases/tags/chatgpt-v132 > /tmp/release.json
           expected=$(sha256sum dist/*.deb | cut -d' ' -f1)
