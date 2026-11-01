@@ -5,6 +5,7 @@ const assert=require('node:assert/strict');
  const browser=await firefox.launch();
  try {
  const page=await browser.newPage({viewport:{width:430,height:932}});
+ const source=fs.readFileSync(process.env.HEADER_SOURCE||'web/chatgpt-app-shell.js','utf8');
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  let release;
  const blocked=new Promise(r=>release=r);
@@ -12,8 +13,8 @@ const assert=require('node:assert/strict');
  await page.route('http://home.test/',r=>r.fulfill({contentType:'text/html',body:`<!doctype html><html><head><title>Home</title><style>
  body{margin:0;background:rgb(227,227,227)} .home-header{height:64px;width:100%;display:flex;align-items:center;background:white}
  button{height:36px;border:0} .tabs{margin:auto;display:flex;background:#ccc;border-radius:30px} .tabs button{width:90px;background:transparent} .tabs button:first-child{background:white} .right{background:transparent;width:35px} svg{width:24px;height:24px}
- </style></head><body><main><div class="home-header"><div class="tabs" role="tablist"><button role="tab">Chat</button><button role="tab">Work</button></div><button class="right" aria-label="Temporary chat"><svg></svg></button></div><p>What's on your mind today?</p></main><script src="/slow.js"></script></body></html>`}));
- await page.addInitScript({content:fs.readFileSync(process.env.HEADER_SOURCE||'web/chatgpt-app-shell.js','utf8')});
+ </style><script>${source}</script></head><body><main><div class="home-header"><div class="tabs" role="tablist"><button role="tab">Chat</button><button role="tab">Work</button></div><button class="right" aria-label="Temporary chat"><svg></svg></button></div><p>What's on your mind today?</p></main><script src="/slow.js"></script></body></html>`}));
+ // Execute in the parser head, before body creation and the blocked script.
  const navigation=page.goto('http://home.test/');
  navigation.catch(()=>{});
  await page.waitForSelector('.home-header');
