@@ -145,5 +145,29 @@ textarea{position:fixed;bottom:10px;left:20px}
  assert.equal(await page.evaluate(()=>window.__chromePasses),settled,'theme refresh must settle');
  assert.deepEqual(errors,[]);
  console.log("PASS: Firefox header navigation, class/SVG replacement, delayed hydration, swapped icons, unlabelled fallback, sidebar exclusion, white strip and 5000 real message mutations");
+ // Cold startup: an empty header must never paint a full white strip,
+ // including after the page-reveal failsafe. Check Home and a saved chat.
+ for (const route of ["/", "/c/restored"]) {
+  const startup=await browser.newPage({viewport:{width:430,height:932}});
+  await startup.route("http://startup.test/**",r=>r.fulfill({contentType:"text/html",body:markup.replace(controls(),"").replace("background:white","background:#e3e3e3")}));
+  await startup.addInitScript({content:instrumented});
+  await startup.goto("http://startup.test"+route);
+  for (const delay of [0,1700]) {
+   await startup.waitForTimeout(delay);
+   const paint=await startup.$eval('#page-header',h=>({bg:getComputedStyle(h).backgroundImage,base:getComputedStyle(h).backgroundColor}));
+   assert(paint.bg.includes('0px, rgba(0, 0, 0, 0) 0px'), 'empty startup strip must have zero painted height: '+paint.bg);
+   assert.equal(paint.base,'rgba(0, 0, 0, 0)');
+  }
+  await startup.evaluate(html=>{document.querySelector('#page-header').innerHTML=html;for(const b of document.querySelectorAll('#page-header button')) b.style.background='#DFEAFF';},controls());
+  await startup.waitForTimeout(150);
+  const ready=await startup.$eval('#page-header',h=>({bg:getComputedStyle(h).backgroundImage,cut:parseFloat(h.style.getPropertyValue('--cg-ios16-topbar-cutoff'))}));
+  assert(ready.bg.includes('rgb(223, 234, 255)'));
+  assert(ready.cut>20);
+  await startup.evaluate(()=>document.querySelector('#page-header').innerHTML='');
+  await startup.waitForTimeout(150);
+  assert.equal(await startup.$eval('#page-header',h=>h.style.getPropertyValue('--cg-ios16-topbar-cutoff')),'0px','empty reused header clears old strip');
+  await startup.close();
+ }
+ console.log('PASS: empty Home/restored-chat startup before and after failsafe, delayed blue header hydration, and reused empty header');
  await browser.close();
 })().catch(e=>{console.error(e);process.exit(1);});
