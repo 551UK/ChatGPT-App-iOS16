@@ -15,12 +15,13 @@ const assert=require('node:assert/strict');
  </style></head><body><main><div class="home-header"><div class="tabs" role="tablist"><button role="tab">Chat</button><button role="tab">Work</button></div><button class="right" aria-label="Temporary chat"><svg></svg></button></div><p>What's on your mind today?</p></main><script src="/slow.js"></script></body></html>`}));
  await page.addInitScript({content:fs.readFileSync(process.env.HEADER_SOURCE||'web/chatgpt-app-shell.js','utf8')});
  const navigation=page.goto('http://home.test/');
+ navigation.catch(()=>{});
  await page.waitForSelector('.home-header');
  // Keep DOMContentLoaded blocked: a visible Home row must already be adaptive.
  await page.waitForTimeout(150);
  const state=await page.$eval('.home-header',h=>({ready:document.readyState,bg:getComputedStyle(h).backgroundImage,base:getComputedStyle(h).backgroundColor,cut:parseFloat(h.style.getPropertyValue('--cg-ios16-topbar-cutoff')),bottom:Math.max(...Array.from(h.querySelectorAll('button')).map(b=>b.getBoundingClientRect().bottom))-h.getBoundingClientRect().top}));
  assert.equal(state.ready,'loading');
- assert(state.bg.includes('rgb(227, 227, 227)'),JSON.stringify(state));
+ assert(state.bg.includes('rgb(227, 227, 227)'),JSON.stringify({state,errors}));
  assert.equal(state.base,'rgba(0, 0, 0, 0)');
  assert.equal(state.cut,state.bottom);
  release();await navigation;
